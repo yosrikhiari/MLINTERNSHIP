@@ -1,0 +1,586 @@
+﻿@model List<MLINTERNSHIP.ForecastResult>
+@{
+    ViewData["Title"] = "Forecast Results";
+    var fileName = ViewBag.FileName as string ?? "Unknown";
+    var horizon = ViewBag.Horizon ?? 7;
+    var recordCount = ViewBag.RecordCount ?? 0;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>@ViewData["Title"] - Enhanced Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <style>
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 30px;
+        }
+
+        .metric-card {
+            transition: transform 0.2s;
+            border-left: 4px solid #007bff;
+        }
+
+            .metric-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+
+        .performance-badge {
+            font-size: 0.8rem;
+        }
+
+        .model-badge {
+            font-weight: 600;
+        }
+
+        .table th {
+            background-color: #212529 !important;
+            color: #ffffff !important;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .forecast-value {
+            font-weight: 600;
+            color: #28a745;
+        }
+
+        .confidence-interval {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .loading-spinner {
+            display: none;
+        }
+
+        .error-message {
+            color: #dc3545;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .chart-legend {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    @if (Model == null || !Model.Any())
+    {
+        <div class="container mt-5">
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                No forecast results available. Please upload a valid CSV file with supply chain data.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="container-fluid mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fas fa-chart-line text-success me-2"></i>Demand Forecast Dashboard</h2>
+                <div>
+                    <button class="btn btn-outline-secondary me-2" onclick="exportResults()">
+                        <i class="fas fa-download me-1"></i>Export Results
+                    </button>
+                    <a href="@Url.Action("NewUpload", "Forecast")" class="btn btn-primary">
+                        <i class="fas fa-upload me-1"></i>Upload New File
+                    </a>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="fas fa-box text-primary me-2"></i>Products</h5>
+                            <h3 class="text-primary" id="totalProducts"></h3>
+                            <small class="text-muted">Forecasted items</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="fas fa-calendar text-info me-2"></i>Horizon</h5>
+                            <h3 class="text-info" id="forecastHorizon"></h3>
+                            <small class="text-muted">Days ahead</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="fas fa-chart-bar text-warning me-2"></i>Avg SMAPE</h5>
+                            <h3 class="text-warning" id="avgSmape"></h3>
+                            <small class="text-muted">Model accuracy</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="fas fa-robot text-success me-2"></i>Best Model</h5>
+                            <h3 class="text-success" id="bestModel"></h3>
+                            <small class="text-muted">Most selected</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="row mb-4">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Forecast Predictions by Product</h5>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="toggleChartType()">
+                                    <i class="fas fa-exchange-alt me-1"></i>Switch View
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="forecastChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Table -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Product Performance Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table id="summaryTable" class="table table-striped table-bordered" style="width:100%">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Product ID</th>
+                                    <th>Model</th>
+                                    <th>Avg Forecast</th>
+                                    <th>Forecast Range</th>
+                                    <th>Performance</th>
+                                    <th>Metrics</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="summaryTableBody">
+                                <!-- Data will be populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Results -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Detailed Forecast Data</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table id="detailTable" class="table table-striped table-bordered" style="width:100%">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Product</th>
+                                    <th>Day</th>
+                                    <th>Forecast</th>
+                                    <th>Confidence</th>
+                                    <th>Model</th>
+                                    <th>SMAPE</th>
+                                    <th>MAPE</th>
+                                    <th>R²</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detailTableBody">
+                                <!-- Data will be populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Product Detail Modal -->
+        <div class="modal fade" id="productModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Product Forecast Details - <span id="modalProductId"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="chart-container">
+                                    <canvas id="productChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Forecast Summary</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="productSummary">
+                                            <!-- Summary data will be populated -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Daily Forecast Breakdown</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Day</th>
+                                                <th>Forecast</th>
+                                                <th>Confidence Interval</th>
+                                                <th>Prophet</th>
+                                                <th>XGBoost</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="modalTableBody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scripts -->
+        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+        <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+
+        <script>
+            var horizon = @horizon;
+            var forecastData = [
+            @foreach (var result in Model)
+            {
+                <text>
+                        {
+                            productId: "@result.ProductId",
+                            selectedModel: "@result.SelectedModel",
+                            predictions: @Html.Raw(Json.Serialize(result.Predictions)),
+                            confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
+                            prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
+                            xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
+                            combinedSMAPE: @result.CombinedSMAPE,
+                            prophetSMAPE: @result.ProphetSMAPE,
+                            xgBoostSMAPE: @result.XgBoostSMAPE,
+                            metrics: {
+                                mape: @result.Metrics.MAPE,
+                                rmse: @result.Metrics.RMSE,
+                                mae: @result.Metrics.MAE,
+                                r2: @result.Metrics.R2,
+                                smape: @result.Metrics.SMAPE
+                            }
+                        },
+                </text>
+            }
+            ];
+
+            let currentChart = null;
+            let productChart = null;
+            let chartType = 'line';
+
+            $(document).ready(function() {
+                console.log('Initializing dashboard with', forecastData.length, 'products');
+                updateSummaryCards();
+                populateTables();
+                createCharts();
+                initializeDataTables();
+            });
+
+            function updateSummaryCards() {
+                const totalProducts = forecastData.length;
+                const avgSmape = (forecastData.reduce((sum, item) => sum + item.combinedSMAPE, 0) / totalProducts).toFixed(2);
+                const modelCounts = {};
+                forecastData.forEach(item => {
+                    modelCounts[item.selectedModel] = (modelCounts[item.selectedModel] || 0) + 1;
+                });
+                const bestModel = Object.keys(modelCounts).reduce((a, b) => modelCounts[a] > modelCounts[b] ? a : b);
+
+                document.getElementById('totalProducts').textContent = totalProducts;
+                document.getElementById('forecastHorizon').textContent = horizon;
+                document.getElementById('avgSmape').textContent = avgSmape + '%';
+                document.getElementById('bestModel').textContent = bestModel;
+            }
+
+            function populateTables() {
+                populateSummaryTable();
+                populateDetailTable();
+            }
+
+            function populateSummaryTable() {
+                const tbody = document.getElementById('summaryTableBody');
+                tbody.innerHTML = '';
+                forecastData.forEach(item => {
+                    const avgForecast = (item.predictions.reduce((a, b) => a + b, 0) / item.predictions.length).toFixed(2);
+                    const minForecast = Math.min(...item.predictions).toFixed(2);
+                    const maxForecast = Math.max(...item.predictions).toFixed(2);
+                    const range = `${minForecast} - ${maxForecast}`;
+                    const smapeBadge = getPerformanceBadge(item.combinedSMAPE);
+                    const row = `
+                        <tr>
+                            <td><strong>${item.productId}</strong></td>
+                            <td><span class="badge bg-primary model-badge">${item.selectedModel}</span></td>
+                            <td class="forecast-value">${avgForecast}</td>
+                            <td><small>${range}</small></td>
+                            <td>${smapeBadge}</td>
+                            <td>
+                                <small>
+                                    MAPE: ${item.metrics.mape.toFixed(2)}%<br>
+                                    R²: ${item.metrics.r2.toFixed(3)}
+                                </small>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="showProductDetails('${item.productId}')">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            }
+
+            function populateDetailTable() {
+                const tbody = document.getElementById('detailTableBody');
+                tbody.innerHTML = '';
+                forecastData.forEach(item => {
+                    item.predictions.forEach((forecast, dayIndex) => {
+                        const confidence = item.confidenceIntervals[dayIndex];
+                        const row = `
+                            <tr>
+                                <td><strong>${item.productId}</strong></td>
+                                <td>Day ${dayIndex + 1}</td>
+                                <td class="forecast-value">${forecast.toFixed(2)}</td>
+                                <td class="confidence-interval">±${confidence.toFixed(2)}</td>
+                                <td><span class="badge bg-secondary">${item.selectedModel}</span></td>
+                                <td>${item.combinedSMAPE.toFixed(2)}%</td>
+                                <td>${item.metrics.mape.toFixed(2)}%</td>
+                                <td>${item.metrics.r2.toFixed(3)}</td>
+                            </tr>
+                        `;
+                        tbody.innerHTML += row;
+                    });
+                });
+            }
+
+            function getPerformanceBadge(smape) {
+                if (smape < 5) return `<span class="badge bg-success performance-badge">${smape.toFixed(2)}% Excellent</span>`;
+                if (smape < 10) return `<span class="badge bg-warning text-dark performance-badge">${smape.toFixed(2)}% Good</span>`;
+                if (smape < 20) return `<span class="badge bg-warning performance-badge">${smape.toFixed(2)}% Fair</span>`;
+                return `<span class="badge bg-danger performance-badge">${smape.toFixed(2)}% Poor</span>`;
+            }
+
+            function createCharts() {
+                createForecastChart();
+            }
+
+            function createForecastChart() {
+                const ctx = document.getElementById('forecastChart').getContext('2d');
+                if (currentChart) currentChart.destroy();
+
+                // Enhanced color palette with better visibility for 10 SKUs
+                const colors = [
+                    '#e74c3c',  // Red
+                    '#3498db',  // Blue
+                    '#f39c12',  // Orange
+                    '#2ecc71',  // Green
+                    '#9b59b6',  // Purple
+                    '#1abc9c',  // Turquoise
+                    '#e67e22',  // Carrot
+                    '#34495e',  // Wet Asphalt
+                    '#f1c40f',  // Yellow
+                    '#e91e63'   // Pink
+                ];
+
+                const datasets = forecastData.map((item, index) => ({
+                    label: `${item.productId} (${item.selectedModel})`,
+                    data: item.predictions,
+                    borderColor: colors[index % colors.length],
+                    backgroundColor: colors[index % colors.length] + '30',
+                    tension: 0.4,
+                    fill: false,
+                    borderWidth: 3,
+                    pointBackgroundColor: colors[index % colors.length],
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 5
+                }));
+
+                currentChart = new Chart(ctx, {
+                    type: chartType,
+                    data: {
+                        labels: Array.from({length: horizon}, (_, i) => `Day ${i + 1}`),
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Forecast Value' } },
+                            x: { title: { display: true, text: 'Forecast Horizon' } }
+                        },
+                        plugins: {
+                            legend: { position: 'top' },
+                            tooltip: {
+                                callbacks: {
+                                    afterLabel: function(context) {
+                                        const dataIndex = context.dataIndex;
+                                        const product = forecastData[context.datasetIndex];
+                                        const confidence = product.confidenceIntervals[dataIndex];
+                                        return `Confidence: ±${confidence.toFixed(2)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            function initializeDataTables() {
+                setTimeout(() => {
+                    if ($.fn.DataTable) {
+                        $('#summaryTable').DataTable({
+                            pageLength: 10,
+                            order: [[0, 'asc']],
+                            responsive: true,
+                            dom: 'Bfrtip',
+                            language: {
+                                search: "Search products:",
+                                lengthMenu: "Show _MENU_ products"
+                            }
+                        });
+                        $('#detailTable').DataTable({
+                            pageLength: 25,
+                            order: [[0, 'asc'], [1, 'asc']],
+                            responsive: true,
+                            language: {
+                                search: "Search forecasts:",
+                                lengthMenu: "Show _MENU_ entries"
+                            }
+                        });
+                    }
+                }, 500);
+            }
+
+            function toggleChartType() {
+                chartType = chartType === 'line' ? 'bar' : 'line';
+                createForecastChart();
+            }
+
+            function showProductDetails(productId) {
+                const product = forecastData.find(item => item.productId === productId);
+                if (!product) return;
+                document.getElementById('modalProductId').textContent = productId;
+                const summary = `
+                    <div class="row">
+                        <div class="col-6"><strong>Model:</strong></div>
+                        <div class="col-6">${product.selectedModel}</div>
+                        <div class="col-6"><strong>Avg Forecast:</strong></div>
+                        <div class="col-6">${(product.predictions.reduce((a,b) => a+b, 0) / product.predictions.length).toFixed(2)}</div>
+                        <div class="col-6"><strong>SMAPE:</strong></div>
+                        <div class="col-6">${product.combinedSMAPE.toFixed(2)}%</div>
+                        <div class="col-6"><strong>R²:</strong></div>
+                        <div class="col-6">${product.metrics.r2.toFixed(3)}</div>
+                    </div>
+                `;
+                document.getElementById('productSummary').innerHTML = summary;
+                const modalTbody = document.getElementById('modalTableBody');
+                modalTbody.innerHTML = '';
+                product.predictions.forEach((forecast, index) => {
+                    const row = `
+                        <tr>
+                            <td>Day ${index + 1}</td>
+                            <td class="forecast-value">${forecast.toFixed(2)}</td>
+                            <td class="confidence-interval">±${product.confidenceIntervals[index].toFixed(2)}</td>
+                            <td>${product.prophetPredictions[index].toFixed(2)}</td>
+                            <td>${product.xgBoostPredictions[index].toFixed(2)}</td>
+                        </tr>
+                    `;
+                    modalTbody.innerHTML += row;
+                });
+                const ctx = document.getElementById('productChart').getContext('2d');
+                if (productChart) productChart.destroy();
+                productChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: Array.from({length: horizon}, (_, i) => `Day ${i + 1}`),
+                        datasets: [
+                            {
+                                label: 'Final Forecast',
+                                data: product.predictions,
+                                borderColor: '#007bff',
+                                backgroundColor: '#007bff20',
+                                tension: 0.4,
+                                borderWidth: 3
+                            },
+                            {
+                                label: 'Prophet',
+                                data: product.prophetPredictions,
+                                borderColor: '#28a745',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                tension: 0.4
+                            },
+                            {
+                                label: 'XGBoost',
+                                data: product.xgBoostPredictions,
+                                borderColor: '#dc3545',
+                                backgroundColor: 'transparent',
+                                borderDash: [10, 5],
+                                tension: 0.4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'top' },
+                            title: { display: true, text: `${productId} - ${horizon}-Day Forecast Comparison` }
+                        },
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Forecast Value' } }
+                        }
+                    }
+                });
+                const modal = new bootstrap.Modal(document.getElementById('productModal'));
+                modal.show();
+            }
+
+            function exportResults() {
+                alert('Export functionality would be implemented here');
+            }
+        </script>
+    }
+</body>
+</html>

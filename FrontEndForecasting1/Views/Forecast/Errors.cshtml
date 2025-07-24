@@ -1,0 +1,22 @@
+﻿@{
+    ViewData["Title"] = "Error";
+}
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="alert alert-danger" role="alert">
+                <h4 class="alert-heading">
+                    <i class="fas fa-exclamation-triangle"></i> Error Processing Request
+                </h4>
+                <p>@ViewBag.Error</p>
+                <hr>
+                <p class="mb-0">
+                    <a href="@Url.Action("Index", "Forecast")" class="btn btn-primary">
+                        <i class="fas fa-arrow-left"></i> Try Again
+                    </a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
