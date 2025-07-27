@@ -253,7 +253,7 @@
                                         <thead>
                                             <tr>
                                                 <th>Day</th>
-                                                <th>Forecast</th>
+                                                <th>Selected Model Forecast</th>
                                                 <th>Confidence Interval</th>
                                                 <th>Prophet</th>
                                                 <th>XGBoost</th>
@@ -283,24 +283,24 @@
             @foreach (var result in Model)
             {
                 <text>
-                        {
-                            productId: "@result.ProductId",
-                            selectedModel: "@result.SelectedModel",
-                            predictions: @Html.Raw(Json.Serialize(result.Predictions)),
-                            confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
-                            prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
-                            xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
-                            combinedSMAPE: @result.CombinedSMAPE,
-                            prophetSMAPE: @result.ProphetSMAPE,
-                            xgBoostSMAPE: @result.XgBoostSMAPE,
-                            metrics: {
-                                mape: @result.Metrics.MAPE,
-                                rmse: @result.Metrics.RMSE,
-                                mae: @result.Metrics.MAE,
-                                r2: @result.Metrics.R2,
-                                smape: @result.Metrics.SMAPE
-                            }
-                        },
+                            {
+                                productId: "@result.ProductId",
+                                selectedModel: "@result.SelectedModel",
+                                predictions: @Html.Raw(Json.Serialize(result.Predictions)),
+                                confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
+                                prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
+                                xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
+                                prophetSMAPE: @result.ProphetSMAPE,
+                                xgBoostSMAPE: @result.XgBoostSMAPE,
+                                selectedModelSMAPE: @(result.SelectedModel == "Prophet" ? result.ProphetSMAPE : result.XgBoostSMAPE),
+                                metrics: {
+                                    mape: @result.Metrics.MAPE,
+                                    rmse: @result.Metrics.RMSE,
+                                    mae: @result.Metrics.MAE,
+                                    r2: @result.Metrics.R2,
+                                    smape: @result.Metrics.SMAPE
+                                }
+                            },
                 </text>
             }
             ];
@@ -319,7 +319,7 @@
 
             function updateSummaryCards() {
                 const totalProducts = forecastData.length;
-                const avgSmape = (forecastData.reduce((sum, item) => sum + item.combinedSMAPE, 0) / totalProducts).toFixed(2);
+                const avgSmape = (forecastData.reduce((sum, item) => sum + item.selectedModelSMAPE, 0) / totalProducts).toFixed(2);
                 const modelCounts = {};
                 forecastData.forEach(item => {
                     modelCounts[item.selectedModel] = (modelCounts[item.selectedModel] || 0) + 1;
@@ -345,7 +345,7 @@
                     const minForecast = Math.min(...item.predictions).toFixed(2);
                     const maxForecast = Math.max(...item.predictions).toFixed(2);
                     const range = `${minForecast} - ${maxForecast}`;
-                    const smapeBadge = getPerformanceBadge(item.combinedSMAPE);
+                    const smapeBadge = getPerformanceBadge(item.selectedModelSMAPE);
                     const row = `
                         <tr>
                             <td><strong>${item.productId}</strong></td>
@@ -383,7 +383,7 @@
                                 <td class="forecast-value">${forecast.toFixed(2)}</td>
                                 <td class="confidence-interval">±${confidence.toFixed(2)}</td>
                                 <td><span class="badge bg-secondary">${item.selectedModel}</span></td>
-                                <td>${item.combinedSMAPE.toFixed(2)}%</td>
+                                <td>${item.selectedModelSMAPE.toFixed(2)}%</td>
                                 <td>${item.metrics.mape.toFixed(2)}%</td>
                                 <td>${item.metrics.r2.toFixed(3)}</td>
                             </tr>
@@ -503,12 +503,16 @@
                 document.getElementById('modalProductId').textContent = productId;
                 const summary = `
                     <div class="row">
-                        <div class="col-6"><strong>Model:</strong></div>
+                        <div class="col-6"><strong>Selected Model:</strong></div>
                         <div class="col-6">${product.selectedModel}</div>
                         <div class="col-6"><strong>Avg Forecast:</strong></div>
                         <div class="col-6">${(product.predictions.reduce((a,b) => a+b, 0) / product.predictions.length).toFixed(2)}</div>
-                        <div class="col-6"><strong>SMAPE:</strong></div>
-                        <div class="col-6">${product.combinedSMAPE.toFixed(2)}%</div>
+                        <div class="col-6"><strong>Model SMAPE:</strong></div>
+                        <div class="col-6">${product.selectedModelSMAPE.toFixed(2)}%</div>
+                        <div class="col-6"><strong>Prophet SMAPE:</strong></div>
+                        <div class="col-6">${product.prophetSMAPE.toFixed(2)}%</div>
+                        <div class="col-6"><strong>XGBoost SMAPE:</strong></div>
+                        <div class="col-6">${product.xgBoostSMAPE.toFixed(2)}%</div>
                         <div class="col-6"><strong>R²:</strong></div>
                         <div class="col-6">${product.metrics.r2.toFixed(3)}</div>
                     </div>
@@ -536,7 +540,7 @@
                         labels: Array.from({length: horizon}, (_, i) => `Day ${i + 1}`),
                         datasets: [
                             {
-                                label: 'Final Forecast',
+                                label: `Selected (${product.selectedModel})`,
                                 data: product.predictions,
                                 borderColor: '#007bff',
                                 backgroundColor: '#007bff20',

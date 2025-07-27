@@ -12,10 +12,6 @@ namespace MLINTERNSHIP
 {
     public class SupplyChainData
     {
-        [Name("ds")]
-        public string Ds { get; set; } = string.Empty;
-        [Name("y")]
-        public int Y { get; set; }
         [Name("Date")]
         public DateTime Date { get; set; }
         [Name("Product type")]
@@ -192,7 +188,6 @@ namespace MLINTERNSHIP
         public List<float> ConfidenceIntervals { get; set; } = new();
         public double ProphetSMAPE { get; set; }
         public double XgBoostSMAPE { get; set; }
-        public double CombinedSMAPE { get; set; }
     }
 
     public class ImprovedDemandForecaster
@@ -205,7 +200,314 @@ namespace MLINTERNSHIP
             mlContext = new MLContext(seed);
             random = new Random(seed);
         }
+        public static List<SupplyChainData> LoadCsvData(Stream stream)
+        {
+            try
+            {
+                Console.WriteLine("Starting CSV parsing");
+                using var reader = new StreamReader(stream);
+                using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+                Console.WriteLine("CsvReader initialized");
+                var records = csv.GetRecords<SupplyChainData>().ToList();
+                Console.WriteLine($"Parsed {records.Count} records");
+                return records;
+            }
+            catch (CsvHelper.HeaderValidationException ex)
+            {
+                Console.WriteLine($"Header validation error: {ex.Message}");
+                throw;
+            }
+            catch (CsvHelperException ex)
+            {
+                Console.WriteLine($"CSV parsing error: {ex.Message}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Unexpected error in LoadCsvData: {ex.Message}\nStackTrace: {ex.StackTrace}");
+                throw;
+            }
+        }
+        public List<ForecastResult> ForecastAllProducts(List<SupplyChainData> supplyChainData, int horizon = 7)
+        {
+            try
+            {
+                var groupedData = supplyChainData.GroupBy(d => d.SKU);
+                var results = new List<ForecastResult>();
 
+                foreach (var group in groupedData)
+                {
+                    var productData = group.OrderBy(d => d.Date)
+                        .Select(d => new DemandData
+                        {
+                            Date = d.Date,
+                            Demand = d.NumberOfProductsSold,
+                            ProductId = d.SKU,
+                            ProductType = d.ProductType,
+                            Price = (float)d.Price,
+                            StockLevels = d.StockLevels,
+                            LeadTimes = d.LeadTimes,
+                            DayOfWeek = d.DayOfWeek,
+                            Month = d.Month,
+                            Quarter = d.Quarter,
+                            DayOfYear = d.Date.DayOfYear,
+                            WeekOfYear = GetWeekOfYear(d.Date),
+                            IsWeekend = d.IsWeekend,
+                            Year = d.Year,
+                            IsHoliday = d.IsHoliday,
+                            HolidayName = d.HolidayName,
+                            IsEvent = d.IsEvent,
+                            EventName = d.EventName,
+                            SeasonalMultiplier = d.SeasonalMultiplier
+                        }).ToList();
+
+                    if (productData.Count >= 21)
+                    {
+                        var result = ForecastDemand(productData, group.Key, horizon);
+                        results.Add(result);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Insufficient data for {group.Key} ({productData.Count} points). Using fallback forecast.");
+                        results.Add(CreateFallbackForecast(group.Key, productData, horizon));
+                    }
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing data: {ex.Message}");
+                throw;
+            }
+        }
+
+
+
+
+        /////////////////////For Each Product Processing/////////////////////
+        private static int GetWeekOfYear(DateTime date)
+        {
+            var firstDayOfYear = new DateTime(date.Year, 1, 1);
+            var daysOffset = DayOfWeek.Monday - firstDayOfYear.DayOfWeek;
+            var firstMonday = firstDayOfYear.AddDays(daysOffset);
+            var calendarWeek = ((date - firstMonday).Days / 7) + 1;
+            return Math.Max(1, Math.Min(52, calendarWeek));
+        }
+        public ForecastResult ForecastDemand(IEnumerable<DemandData> data, string productId, int horizon = 7)
+        {
+            var productData = data.OrderBy(d => d.Date).ToList();
+            if (productData.Count < 21)
+                throw new ArgumentException($"Insufficient data for product {productId}.");
+
+            var (processedData, transformationInfo) = EnhancedPreprocessDataWithTransformation(productData);
+            var trainRatio = Math.Max(0.7, Math.Min(0.9, 1.0 - (14.0 / processedData.Count)));
+            var trainSize = (int)(processedData.Count * trainRatio);
+            var validationSize = processedData.Count - trainSize;
+
+            Console.WriteLine($"Product {productId}: Training on {trainSize} samples, validating on {validationSize} samples");
+
+            var requiredHorizon = validationSize + horizon;
+            var prophetForecasts = RunProphetForecasting(processedData.Take(trainSize).ToList(), processedData.First().ProductType, requiredHorizon);
+            var prophetValidationForecasts = prophetForecasts.Take(validationSize).ToList();
+            var prophetFutureForecasts = prophetForecasts.Skip(validationSize).Take(horizon).ToList();
+
+            var xgBoostTrainData = PrepareEnhancedXgBoostData(processedData, 21, trainSize - 21);
+            var xgBoostValidationData = PrepareEnhancedXgBoostData(processedData, trainSize, validationSize, prophetValidationForecasts);
+
+            if (xgBoostTrainData.Count == 0 || xgBoostValidationData.Count == 0)
+            {
+                Console.WriteLine($"Warning: Insufficient data for XGBoost training for product {productId}");
+                return CreateFallbackForecast(productId, processedData, horizon);
+            }
+
+            var optimalParams = RunEnhancedBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 150);
+            var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
+
+            var xgBoostValidationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
+            var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, prophetFutureForecasts, horizon);
+            var xgBoostFuturePredictions = PredictWithXgBoost(xgBoostModel, xgBoostFutureData);
+
+            var actualValidation = processedData.Skip(trainSize).Select(d => d.Demand).ToList();
+
+
+            var prophetSMAPE = CalculateSMAPE(prophetValidationForecasts, actualValidation);
+            var xgBoostSMAPE = CalculateSMAPE(xgBoostValidationPredictions, actualValidation);
+
+
+            Console.WriteLine($"Model Performance Comparison for {productId}:");
+            Console.WriteLine($"  Prophet SMAPE: {prophetSMAPE:F4}%");
+            Console.WriteLine($"  XGBoost SMAPE: {xgBoostSMAPE:F4}%");
+
+
+
+            var minSMAPE = Math.Min(prophetSMAPE, xgBoostSMAPE);
+            string selectedModel;
+            List<float> selectedPredictions;
+            List<float> selectedValidationPredictions;
+
+            if (minSMAPE == prophetSMAPE)
+            {
+                selectedModel = "Prophet";
+                selectedPredictions = prophetFutureForecasts;
+                selectedValidationPredictions = prophetValidationForecasts;
+                Console.WriteLine($"  Selected Model: Prophet (SMAPE: {prophetSMAPE:F4}%)");
+            }
+            else
+            {
+                selectedModel = "XGBoost";
+                selectedPredictions = xgBoostFuturePredictions;
+                selectedValidationPredictions = xgBoostValidationPredictions;
+                Console.WriteLine($"  Selected Model: XGBoost (SMAPE: {xgBoostSMAPE:F4}%)");
+            }
+
+
+            var metrics = CalculateComprehensiveMetrics(
+                actualValidation,
+                selectedValidationPredictions,
+                processedData.Take(trainSize).Select(d => d.Demand).ToList()
+            );
+
+            if (!ValidateDataQuality(productData))
+            {
+                Console.WriteLine($"Unstable data pattern for {productId}, using fallback");
+                return CreateFallbackForecast(productId, productData, horizon);
+            }
+
+            var revertedPredictions = InverseTransformation(selectedPredictions, transformationInfo);
+            var revertedProphetPredictions = InverseTransformation(prophetFutureForecasts, transformationInfo);
+            var revertedXgBoostPredictions = InverseTransformation(xgBoostFuturePredictions, transformationInfo);
+            var revertedConfidenceIntervals = CalculateConfidenceIntervals(revertedPredictions, metrics.RMSE);
+
+            return new ForecastResult
+            {
+                ProductId = productId,
+                Predictions = revertedPredictions,
+                ProphetPredictions = revertedProphetPredictions,
+                XgBoostPredictions = revertedXgBoostPredictions,
+                Metrics = metrics,
+                OptimalHyperparameters = optimalParams,
+                ConfidenceIntervals = revertedConfidenceIntervals,
+                SelectedModel = selectedModel,
+                ProphetSMAPE = prophetSMAPE,
+                XgBoostSMAPE = xgBoostSMAPE
+            };
+        }
+        private static (List<DemandData> processedData, TransformationInfo transformationInfo) EnhancedPreprocessDataWithTransformation(List<DemandData> data)
+        {
+            var processedData = new List<DemandData>();
+            var demands = data.Select(d => d.Demand).ToList();
+
+
+            var (transformedDemands, transformationInfo) = ApplyOptimalTransformationWithInfo(demands);
+
+            for (int i = 0; i < data.Count; i++)
+            {
+                var item = data[i];
+                var cleanedDemand = transformedDemands[i];
+
+                var priceChange = i > 0 ? item.Price - data[i - 1].Price : 0;
+                var stockRatio = item.StockLevels > 0 ? cleanedDemand / item.StockLevels : 0;
+                var demandAcceleration = CalculateDemandAcceleration(transformedDemands, i);
+
+                processedData.Add(new DemandData
+                {
+                    Date = item.Date,
+                    Demand = Math.Max(0.1f, cleanedDemand),
+                    ProductId = item.ProductId,
+                    ProductType = item.ProductType,
+                    Price = Math.Max(0.01f, item.Price),
+                    StockLevels = Math.Max(1, item.StockLevels),
+                    LeadTimes = Math.Max(1, item.LeadTimes),
+                    DayOfWeek = item.DayOfWeek,
+                    Month = item.Month,
+                    Quarter = item.Quarter,
+                    DayOfYear = item.DayOfYear,
+                    WeekOfYear = item.WeekOfYear,
+                    PriceChange = priceChange,
+                    StockRatio = Math.Min(10f, stockRatio),
+                    DemandAcceleration = demandAcceleration,
+                    IsWeekend = item.IsWeekend,
+                    Year = item.Year,
+                    IsHoliday = item.IsHoliday,
+                    HolidayName = item.HolidayName,
+                    IsEvent = item.IsEvent,
+                    EventName = item.EventName,
+                    SeasonalMultiplier = item.SeasonalMultiplier,
+                    TransformationInfo = transformationInfo
+                });
+            }
+
+            return (processedData, transformationInfo);
+        }
+        private static (List<float> transformedSeries, TransformationInfo transformationInfo) ApplyOptimalTransformationWithInfo(List<float> series)
+        {
+            var original = series.ToList();
+            var logTransformed = series.Select(x => (float)Math.Log(x + 1)).ToList();
+            var sqrtTransformed = series.Select(x => (float)Math.Sqrt(x)).ToList();
+            var lambda = 0.5f;
+            var boxCoxTransformed = ApplyBoxCoxTransformation(series, lambda);
+
+            var originalSkewness = CalculateSkewness(original);
+            var logSkewness = CalculateSkewness(logTransformed);
+            var sqrtSkewness = CalculateSkewness(sqrtTransformed);
+            var boxCoxSkewness = CalculateSkewness(boxCoxTransformed);
+
+            var transformations = new[]
+            {
+        (Math.Abs(originalSkewness), original, "None", 0f),
+        (Math.Abs(logSkewness), logTransformed, "Log", 0f),
+        (Math.Abs(sqrtSkewness), sqrtTransformed, "Sqrt", 0f),
+        (Math.Abs(boxCoxSkewness), boxCoxTransformed, "BoxCox", lambda)
+    };
+
+            var bestTransformation = transformations.OrderBy(t => t.Item1).First();
+
+            var transformationInfo = new TransformationInfo
+            {
+                TransformationType = bestTransformation.Item3,
+                Lambda = bestTransformation.Item4,
+                OriginalSeries = original
+            };
+
+            return (bestTransformation.Item2, transformationInfo);
+        }
+        private static float CalculateSkewness(List<float> series)
+        {
+            var mean = series.Average();
+            var std = (float)Math.Sqrt(series.Select(x => Math.Pow(x - mean, 2)).Average());
+
+            if (std < 1e-10) return 0;
+
+            var skewness = series.Select(x => Math.Pow((x - mean) / std, 3)).Average();
+            return (float)skewness;
+        }
+        private static List<float> ApplyBoxCoxTransformation(List<float> series, float lambda)
+        {
+            if (Math.Abs(lambda) < 1e-10)
+            {
+                return series.Select(x => (float)Math.Log(x + 1)).ToList();
+            }
+
+            return series.Select(x => (float)((Math.Pow(x + 1, lambda) - 1) / lambda)).ToList();
+        }
+        private static float CalculateDemandAcceleration(List<float> series, int index)
+        {
+            if (index < 2) return 0;
+
+            var current = series[index];
+            var previous = series[index - 1];
+            var beforePrevious = series[index - 2];
+
+            var velocity1 = current - previous;
+            var velocity2 = previous - beforePrevious;
+
+            return velocity1 - velocity2;
+        }
+
+
+
+        /////////////////////Model Training and Prediction/////////////////////
         private List<float> RunProphetForecasting(List<DemandData> trainData, string productType, int requiredHorizon)
         {
             try
@@ -298,359 +600,6 @@ namespace MLINTERNSHIP
                 return GenerateExponentialSmoothingForecast(trainData, requiredHorizon);
             }
         }
-
-        public List<ForecastResult> ForecastAllProducts(List<SupplyChainData> supplyChainData, int horizon = 7)
-        {
-            try
-            {
-                var groupedData = supplyChainData.GroupBy(d => d.SKU);
-                var results = new List<ForecastResult>();
-
-                foreach (var group in groupedData)
-                {
-                    var productData = group.OrderBy(d => d.Date)
-                        .Select(d => new DemandData
-                        {
-                            Date = d.Date,
-                            Demand = d.Y,
-                            ProductId = d.SKU,
-                            ProductType = d.ProductType,
-                            Price = (float)d.Price,
-                            StockLevels = d.StockLevels,
-                            LeadTimes = d.LeadTimes,
-                            DayOfWeek = d.DayOfWeek,
-                            Month = d.Month,
-                            Quarter = d.Quarter,
-                            DayOfYear = d.Date.DayOfYear,
-                            WeekOfYear = GetWeekOfYear(d.Date),
-                            IsWeekend = d.IsWeekend,
-                            Year = d.Year,
-                            IsHoliday = d.IsHoliday,
-                            HolidayName = d.HolidayName,
-                            IsEvent = d.IsEvent,
-                            EventName = d.EventName,
-                            SeasonalMultiplier = d.SeasonalMultiplier
-                        }).ToList();
-
-                    if (productData.Count >= 21)
-                    {
-                        var result = ForecastDemand(productData, group.Key, horizon);
-                        results.Add(result);
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Insufficient data for {group.Key} ({productData.Count} points). Using fallback forecast.");
-                        results.Add(CreateFallbackForecast(group.Key, productData, horizon));
-                    }
-                }
-
-                return results;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error processing data: {ex.Message}");
-                throw;
-            }
-        }
-
-        public static List<SupplyChainData> LoadCsvData(Stream stream)
-        {
-            try
-            {
-                Console.WriteLine("Starting CSV parsing");
-                using var reader = new StreamReader(stream);
-                using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
-                Console.WriteLine("CsvReader initialized");
-                var records = csv.GetRecords<SupplyChainData>().ToList();
-                Console.WriteLine($"Parsed {records.Count} records");
-                return records;
-            }
-            catch (CsvHelper.HeaderValidationException ex)
-            {
-                Console.WriteLine($"Header validation error: {ex.Message}");
-                throw;
-            }
-            catch (CsvHelperException ex)
-            {
-                Console.WriteLine($"CSV parsing error: {ex.Message}");
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Unexpected error in LoadCsvData: {ex.Message}\nStackTrace: {ex.StackTrace}");
-                throw;
-            }
-        }
-
-        private static int GetWeekOfYear(DateTime date)
-        {
-            var firstDayOfYear = new DateTime(date.Year, 1, 1);
-            var daysOffset = DayOfWeek.Monday - firstDayOfYear.DayOfWeek;
-            var firstMonday = firstDayOfYear.AddDays(daysOffset);
-            var calendarWeek = ((date - firstMonday).Days / 7) + 1;
-            return Math.Max(1, Math.Min(52, calendarWeek));
-        }
-        private static bool ValidateDataQuality(List<DemandData> data)
-        {
-
-            var mean = data.Average(d => d.Demand);
-            var stdDev = Math.Sqrt(data.Select(d => Math.Pow(d.Demand - mean, 2)).Average());
-            return stdDev / mean < 2.0;
-        }
-
-        public ForecastResult ForecastDemand(IEnumerable<DemandData> data, string productId, int horizon = 7)
-        {
-            var productData = data.OrderBy(d => d.Date).ToList();
-            if (productData.Count < 21)
-                throw new ArgumentException($"Insufficient data for product {productId}.");
-
-            var (processedData, transformationInfo) = EnhancedPreprocessDataWithTransformation(productData);
-            var trainRatio = Math.Max(0.7, Math.Min(0.9, 1.0 - (14.0 / processedData.Count)));
-            var trainSize = (int)(processedData.Count * trainRatio);
-            var validationSize = processedData.Count - trainSize;
-
-            Console.WriteLine($"Product {productId}: Training on {trainSize} samples, validating on {validationSize} samples");
-
-            var requiredHorizon = validationSize + horizon;
-            var prophetForecasts = RunProphetForecasting(processedData.Take(trainSize).ToList(), processedData.First().ProductType, requiredHorizon);
-            var prophetValidationForecasts = prophetForecasts.Take(validationSize).ToList();
-            var prophetFutureForecasts = prophetForecasts.Skip(validationSize).Take(horizon).ToList();
-
-            var xgBoostTrainData = PrepareEnhancedXgBoostData(processedData, 21, trainSize - 21);
-            var xgBoostValidationData = PrepareEnhancedXgBoostData(processedData, trainSize, validationSize, prophetValidationForecasts);
-
-            if (xgBoostTrainData.Count == 0 || xgBoostValidationData.Count == 0)
-            {
-                Console.WriteLine($"Warning: Insufficient data for XGBoost training for product {productId}");
-                return CreateFallbackForecast(productId, processedData, horizon);
-            }
-
-            var optimalParams = RunEnhancedBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 150);
-            var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
-
-            var xgBoostValidationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
-            var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, prophetFutureForecasts, horizon);
-            var xgBoostFuturePredictions = PredictWithXgBoost(xgBoostModel, xgBoostFutureData);
-
-            var actualValidation = processedData.Skip(trainSize).Select(d => d.Demand).ToList();
-
-
-            var prophetSMAPE = CalculateSMAPE(prophetValidationForecasts, actualValidation);
-            var xgBoostSMAPE = CalculateSMAPE(xgBoostValidationPredictions, actualValidation);
-            var combinedValidationPredictions = CombinePredictionsWithConfidence(prophetValidationForecasts, xgBoostValidationPredictions, prophetSMAPE, xgBoostSMAPE);
-            var combinedSMAPE = CalculateSMAPE(combinedValidationPredictions, actualValidation);
-
-
-            Console.WriteLine($"Model Performance Comparison for {productId}:");
-            Console.WriteLine($"  Prophet SMAPE: {prophetSMAPE:F4}%");
-            Console.WriteLine($"  XGBoost SMAPE: {xgBoostSMAPE:F4}%");
-            Console.WriteLine($"  Combined SMAPE: {combinedSMAPE:F4}%");
-
-
-            var minSMAPE = Math.Min(prophetSMAPE, Math.Min(xgBoostSMAPE, combinedSMAPE));
-            string selectedModel;
-            List<float> selectedPredictions;
-            List<float> selectedValidationPredictions;
-
-            if (minSMAPE == prophetSMAPE)
-            {
-                selectedModel = "Prophet";
-                selectedPredictions = prophetFutureForecasts;
-                selectedValidationPredictions = prophetValidationForecasts;
-                Console.WriteLine($"  Selected Model: Prophet (SMAPE: {prophetSMAPE:F4}%)");
-            }
-            else if (minSMAPE == xgBoostSMAPE)
-            {
-                selectedModel = "XGBoost";
-                selectedPredictions = xgBoostFuturePredictions;
-                selectedValidationPredictions = xgBoostValidationPredictions;
-                Console.WriteLine($"  Selected Model: XGBoost (SMAPE: {xgBoostSMAPE:F4}%)");
-            }
-            else
-            {
-                selectedModel = "Combined";
-                selectedPredictions = CombinePredictionsWithConfidence(prophetFutureForecasts, xgBoostFuturePredictions, prophetSMAPE, xgBoostSMAPE);
-                selectedValidationPredictions = combinedValidationPredictions;
-                Console.WriteLine($"  Selected Model: Combined/Ensemble (SMAPE: {combinedSMAPE:F4}%)");
-            }
-
-
-            var metrics = CalculateComprehensiveMetrics(
-                actualValidation,
-                selectedValidationPredictions,
-                processedData.Take(trainSize).Select(d => d.Demand).ToList()
-            );
-
-            if (!ValidateDataQuality(productData))
-            {
-                Console.WriteLine($"Unstable data pattern for {productId}, using fallback");
-                return CreateFallbackForecast(productId, productData, horizon);
-            }
-
-            var revertedPredictions = InverseTransformation(selectedPredictions, transformationInfo);
-            var revertedProphetPredictions = InverseTransformation(prophetFutureForecasts, transformationInfo);
-            var revertedXgBoostPredictions = InverseTransformation(xgBoostFuturePredictions, transformationInfo);
-            var revertedConfidenceIntervals = CalculateConfidenceIntervals(revertedPredictions, metrics.RMSE);
-
-            return new ForecastResult
-            {
-                ProductId = productId,
-                Predictions = revertedPredictions, 
-                ProphetPredictions = revertedProphetPredictions, 
-                XgBoostPredictions = revertedXgBoostPredictions, 
-                Metrics = metrics,
-                OptimalHyperparameters = optimalParams,
-                ConfidenceIntervals = revertedConfidenceIntervals, 
-                SelectedModel = selectedModel,
-                ProphetSMAPE = prophetSMAPE,
-                XgBoostSMAPE = xgBoostSMAPE,
-                CombinedSMAPE = combinedSMAPE
-            };
-        }
-
-
-        private static (List<float> transformedSeries, TransformationInfo transformationInfo) ApplyOptimalTransformationWithInfo(List<float> series)
-        {
-            var original = series.ToList();
-            var logTransformed = series.Select(x => (float)Math.Log(x + 1)).ToList();
-            var sqrtTransformed = series.Select(x => (float)Math.Sqrt(x)).ToList();
-            var lambda = 0.5f;
-            var boxCoxTransformed = ApplyBoxCoxTransformation(series, lambda);
-
-            var originalSkewness = CalculateSkewness(original);
-            var logSkewness = CalculateSkewness(logTransformed);
-            var sqrtSkewness = CalculateSkewness(sqrtTransformed);
-            var boxCoxSkewness = CalculateSkewness(boxCoxTransformed);
-
-            var transformations = new[]
-            {
-        (Math.Abs(originalSkewness), original, "None", 0f),
-        (Math.Abs(logSkewness), logTransformed, "Log", 0f),
-        (Math.Abs(sqrtSkewness), sqrtTransformed, "Sqrt", 0f),
-        (Math.Abs(boxCoxSkewness), boxCoxTransformed, "BoxCox", lambda)
-    };
-
-            var bestTransformation = transformations.OrderBy(t => t.Item1).First();
-
-            var transformationInfo = new TransformationInfo
-            {
-                TransformationType = bestTransformation.Item3,
-                Lambda = bestTransformation.Item4,
-                OriginalSeries = original
-            };
-
-            return (bestTransformation.Item2, transformationInfo);
-        }
-
-      
-        private static List<float> InverseTransformation(List<float> transformedValues, TransformationInfo transformationInfo)
-        {
-            return transformationInfo.TransformationType switch
-            {
-                "Log" => transformedValues.Select(x => (float)(Math.Exp(x) - 1)).ToList(),
-                "Sqrt" => transformedValues.Select(x => x * x).ToList(),
-                "BoxCox" => InverseBoxCoxTransformation(transformedValues, transformationInfo.Lambda),
-                "None" => transformedValues.ToList(),
-                _ => transformedValues.ToList()
-            };
-        }
-        private static List<float> InverseBoxCoxTransformation(List<float> transformedSeries, float lambda)
-        {
-            if (Math.Abs(lambda) < 1e-10)
-            {
-                return transformedSeries.Select(x => (float)(Math.Exp(x) - 1)).ToList();
-            }
-
-            return transformedSeries.Select(x => (float)(Math.Pow(lambda * x + 1, 1.0 / lambda) - 1)).ToList();
-        }
-        private static List<float> ApplyBoxCoxTransformation(List<float> series, float lambda)
-        {
-            if (Math.Abs(lambda) < 1e-10)
-            {
-                return series.Select(x => (float)Math.Log(x + 1)).ToList();
-            }
-
-            return series.Select(x => (float)((Math.Pow(x + 1, lambda) - 1) / lambda)).ToList();
-        }
-
-        private static float CalculateSkewness(List<float> series)
-        {
-            var mean = series.Average();
-            var std = (float)Math.Sqrt(series.Select(x => Math.Pow(x - mean, 2)).Average());
-
-            if (std < 1e-10) return 0;
-
-            var skewness = series.Select(x => Math.Pow((x - mean) / std, 3)).Average();
-            return (float)skewness;
-        }
-
-  
-
-
-        private static float CalculateDemandAcceleration(List<float> series, int index)
-        {
-            if (index < 2) return 0;
-
-            var current = series[index];
-            var previous = series[index - 1];
-            var beforePrevious = series[index - 2];
-
-            var velocity1 = current - previous;
-            var velocity2 = previous - beforePrevious;
-
-            return velocity1 - velocity2;
-        }
-        private static (List<DemandData> processedData, TransformationInfo transformationInfo) EnhancedPreprocessDataWithTransformation(List<DemandData> data)
-        {
-            var processedData = new List<DemandData>();
-            var demands = data.Select(d => d.Demand).ToList();
-
-           
-            var (transformedDemands, transformationInfo) = ApplyOptimalTransformationWithInfo(demands);
-
-            for (int i = 0; i < data.Count; i++)
-            {
-                var item = data[i];
-                var cleanedDemand = transformedDemands[i];
-
-                var priceChange = i > 0 ? item.Price - data[i - 1].Price : 0;
-                var stockRatio = item.StockLevels > 0 ? cleanedDemand / item.StockLevels : 0;
-                var demandAcceleration = CalculateDemandAcceleration(transformedDemands, i);
-
-                processedData.Add(new DemandData
-                {
-                    Date = item.Date,
-                    Demand = Math.Max(0.1f, cleanedDemand),
-                    ProductId = item.ProductId,
-                    ProductType = item.ProductType,
-                    Price = Math.Max(0.01f, item.Price),
-                    StockLevels = Math.Max(1, item.StockLevels),
-                    LeadTimes = Math.Max(1, item.LeadTimes),
-                    DayOfWeek = item.DayOfWeek,
-                    Month = item.Month,
-                    Quarter = item.Quarter,
-                    DayOfYear = item.DayOfYear,
-                    WeekOfYear = item.WeekOfYear,
-                    PriceChange = priceChange,
-                    StockRatio = Math.Min(10f, stockRatio),
-                    DemandAcceleration = demandAcceleration,
-                    IsWeekend = item.IsWeekend,
-                    Year = item.Year,
-                    IsHoliday = item.IsHoliday,
-                    HolidayName = item.HolidayName,
-                    IsEvent = item.IsEvent,
-                    EventName = item.EventName,
-                    SeasonalMultiplier = item.SeasonalMultiplier,
-                    TransformationInfo = transformationInfo
-                });
-            }
-
-            return (processedData, transformationInfo);
-        }
-
-
-
-
         private static List<float> GenerateExponentialSmoothingForecast(List<DemandData> data, int horizon)
         {
             var alpha = 0.3f;
@@ -673,28 +622,6 @@ namespace MLINTERNSHIP
             }
             return forecasts;
         }
-
-        private ForecastResult CreateFallbackForecast(string productId, List<DemandData> data, int horizon)
-        {
-          
-            var transformationInfo = data.FirstOrDefault()?.TransformationInfo ?? new TransformationInfo();
-
-            var forecasts = GenerateExponentialSmoothingForecast(data, horizon);
-            var revertedForecasts = InverseTransformation(forecasts, transformationInfo);
-
-            return new ForecastResult
-            {
-                ProductId = productId,
-                Predictions = revertedForecasts,
-                ProphetPredictions = revertedForecasts,
-                XgBoostPredictions = revertedForecasts,
-                Metrics = new EvaluationMetrics { MAPE = double.NaN, RMSE = double.NaN, MAE = double.NaN, R2 = double.NaN, SMAPE = double.NaN, MASE = double.NaN },
-                OptimalHyperparameters = null,
-                ConfidenceIntervals = Enumerable.Repeat(0f, horizon).ToList(),
-                SelectedModel = "ExponentialSmoothing"
-            };
-        }
-
         private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostData(List<DemandData> fullData, int startIndex, int count, List<float>? prophetForecasts = null)
         {
             var xgBoostData = new List<EnhancedXgBoostInput>();
@@ -753,14 +680,6 @@ namespace MLINTERNSHIP
             }
             return xgBoostData;
         }
-
-        private static double StandardDeviation(IEnumerable<float> values)
-        {
-            var avg = values.Average();
-            var sum = values.Sum(v => Math.Pow(v - avg, 2));
-            return Math.Sqrt(sum / values.Count());
-        }
-
         private static float CalculateExponentialSmoothing(List<float> data, float alpha)
         {
             if (data.Count == 0) return 0;
@@ -771,8 +690,12 @@ namespace MLINTERNSHIP
             }
             return smoothed;
         }
-
-
+        private static double StandardDeviation(IEnumerable<float> values)
+        {
+            var avg = values.Average();
+            var sum = values.Sum(v => Math.Pow(v - avg, 2));
+            return Math.Sqrt(sum / values.Count());
+        }
         private OptimizedHyperparameters RunEnhancedBayesianOptimization(List<EnhancedXgBoostInput> trainData, List<EnhancedXgBoostInput> validationData, int iterations)
         {
             var bestParams = new OptimizedHyperparameters();
@@ -815,7 +738,6 @@ namespace MLINTERNSHIP
             Console.WriteLine($"Best hyperparameters found with SMAPE: {bestError:F4}");
             return bestParams;
         }
-
         private XGBRegressor TrainXgBoost(List<EnhancedXgBoostInput> trainData, OptimizedHyperparameters hyperparams)
         {
             float[][] dataTrain = trainData.Select(d => new float[]
@@ -841,7 +763,6 @@ namespace MLINTERNSHIP
             regressor.Fit(dataTrain, labelsTrain);
             return regressor;
         }
-
         private List<float> PredictWithXgBoost(XGBRegressor regressor, List<EnhancedXgBoostInput> inputs)
         {
             float[][] data = inputs.Select(d => new float[]
@@ -854,7 +775,6 @@ namespace MLINTERNSHIP
             float[] predictions = regressor.Predict(data);
             return predictions.Select(p => Math.Max(0, p)).ToList();
         }
-
         private static List<EnhancedXgBoostInput> CreateEnhancedFutureFeatures(List<DemandData> historicalData, List<float> prophetForecasts, int horizon)
         {
             var futureFeatures = new List<EnhancedXgBoostInput>();
@@ -916,6 +836,9 @@ namespace MLINTERNSHIP
             return futureFeatures;
         }
 
+
+
+        /////////////////////Model Evaluation and Selection/////////////////////
         private static double CalculateSMAPE(List<float> predictions, List<float> actual)
         {
             if (predictions.Count != actual.Count)
@@ -930,19 +853,6 @@ namespace MLINTERNSHIP
             }
             return (sum / predictions.Count) * 100;
         }
-
-        private static List<float> CombinePredictionsWithConfidence(List<float> prophetForecasts, List<float> xgBoostPredictions, double prophetError, double xgBoostError) 
-        {
-            if (prophetError == 0 && xgBoostError == 0)
-                return prophetForecasts.Zip(xgBoostPredictions, (s, x) => (s + x) / 2).ToList();
-
-            var totalError = prophetError + xgBoostError;
-            var w1 = (float)(xgBoostError / totalError);
-            var w2 = (float)(prophetError / totalError);
-
-            return prophetForecasts.Zip(xgBoostPredictions, (s, x) => Math.Max(0, w1 * s + w2 * x)).ToList();
-        }
-
         private static EvaluationMetrics CalculateComprehensiveMetrics(List<float> actual, List<float> predicted, List<float> trainData)
         {
             if (actual.Count != predicted.Count)
@@ -973,12 +883,64 @@ namespace MLINTERNSHIP
                 MASE = mase
             };
         }
+        private static bool ValidateDataQuality(List<DemandData> data)
+        {
+            var mean = data.Average(d => d.Demand);
+            var stdDev = Math.Sqrt(data.Select(d => Math.Pow(d.Demand - mean, 2)).Average());
+            return stdDev / mean < 2.0;
+        }
 
+
+
+
+
+        /////////////////////Post-Processing/////////////////////
+        private static List<float> InverseTransformation(List<float> transformedValues, TransformationInfo transformationInfo)
+        {
+            return transformationInfo.TransformationType switch
+            {
+                "Log" => transformedValues.Select(x => (float)(Math.Exp(x) - 1)).ToList(),
+                "Sqrt" => transformedValues.Select(x => x * x).ToList(),
+                "BoxCox" => InverseBoxCoxTransformation(transformedValues, transformationInfo.Lambda),
+                "None" => transformedValues.ToList(),
+                _ => transformedValues.ToList()
+            };
+        }
+        private static List<float> InverseBoxCoxTransformation(List<float> transformedSeries, float lambda)
+        {
+            if (Math.Abs(lambda) < 1e-10)
+            {
+                return transformedSeries.Select(x => (float)(Math.Exp(x) - 1)).ToList();
+            }
+
+            return transformedSeries.Select(x => (float)(Math.Pow(lambda * x + 1, 1.0 / lambda) - 1)).ToList();
+        }
         private static List<float> CalculateConfidenceIntervals(List<float> predictions, double rmse)
         {
             const float zScore = 1.96f;
             return predictions.Select(p => (float)rmse * zScore).ToList();
         }
+        private ForecastResult CreateFallbackForecast(string productId, List<DemandData> data, int horizon)
+        {
+          
+            var transformationInfo = data.FirstOrDefault()?.TransformationInfo ?? new TransformationInfo();
+
+            var forecasts = GenerateExponentialSmoothingForecast(data, horizon);
+            var revertedForecasts = InverseTransformation(forecasts, transformationInfo);
+
+            return new ForecastResult
+            {
+                ProductId = productId,
+                Predictions = revertedForecasts,
+                ProphetPredictions = revertedForecasts,
+                XgBoostPredictions = revertedForecasts,
+                Metrics = new EvaluationMetrics { MAPE = double.NaN, RMSE = double.NaN, MAE = double.NaN, R2 = double.NaN, SMAPE = double.NaN, MASE = double.NaN },
+                OptimalHyperparameters = null,
+                ConfidenceIntervals = Enumerable.Repeat(0f, horizon).ToList(),
+                SelectedModel = "ExponentialSmoothing"
+            };
+        }
+
     }
 
     public static class Extensions
@@ -1030,7 +992,6 @@ namespace MLINTERNSHIP
                     Console.WriteLine($"\nModel Performance Comparison:");
                     Console.WriteLine($"  Prophet SMAPE:    {result.ProphetSMAPE:F4}%");
                     Console.WriteLine($"  XGBoost SMAPE:    {result.XgBoostSMAPE:F4}%");
-                    Console.WriteLine($"  Combined SMAPE:   {result.CombinedSMAPE:F4}%");
                     Console.WriteLine($"\n>>> SELECTED MODEL: {result.SelectedModel} <<<");
 
                     Console.WriteLine($"\nOverall Metrics (Selected Model):");
