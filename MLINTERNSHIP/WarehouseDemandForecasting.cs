@@ -30,8 +30,6 @@ namespace MLINTERNSHIP
         public string CustomerDemographics { get; set; } = string.Empty;
         [Name("Stock levels")]
         public int StockLevels { get; set; }
-        [Name("Lead times")]
-        public int LeadTimes { get; set; }
         [Name("Order quantities")]
         public int OrderQuantities { get; set; }
         [Name("Shipping times")]
@@ -44,8 +42,8 @@ namespace MLINTERNSHIP
         public string SupplierName { get; set; } = string.Empty;
         [Name("Location")]
         public string Location { get; set; } = string.Empty;
-        [Name("Lead time")]
-        public int LeadTime { get; set; }
+        [Name("Procurement lead time")]
+        public int ProcurementLeadTime { get; set; }
         [Name("Production volumes")]
         public int ProductionVolumes { get; set; }
         [Name("Manufacturing lead time")]
@@ -92,7 +90,8 @@ namespace MLINTERNSHIP
         public string ProductType { get; set; } = string.Empty;
         public float Price { get; set; }
         public int StockLevels { get; set; }
-        public int LeadTimes { get; set; }
+        public int ManufacturingLeadTime { get; set; }
+        public int ProcurementLeadTime { get; set; }
         public int DayOfWeek { get; set; }
         public int Month { get; set; }
         public int Quarter { get; set; }
@@ -141,7 +140,8 @@ namespace MLINTERNSHIP
         public float PriceChange { get; set; }
         public float StockLevels { get; set; }
         public float StockRatio { get; set; }
-        public float LeadTimes { get; set; }
+        public float ProcurementLeadTime { get; set; }
+        public float ManufacturingLeadTime { get; set; }
         public float ProphetForecast { get; set; }
         public float IsWeekend { get; set; }
         public float IsMonthEnd { get; set; }
@@ -246,7 +246,8 @@ namespace MLINTERNSHIP
                             ProductType = d.ProductType,
                             Price = (float)d.Price,
                             StockLevels = d.StockLevels,
-                            LeadTimes = d.LeadTimes,
+                            ProcurementLeadTime = d.ProcurementLeadTime,
+                            ManufacturingLeadTime = d.ManufacturingLeadTime,
                             DayOfWeek = d.DayOfWeek,
                             Month = d.Month,
                             Quarter = d.Quarter,
@@ -418,7 +419,7 @@ namespace MLINTERNSHIP
                     ProductType = item.ProductType,
                     Price = Math.Max(0.01f, item.Price),
                     StockLevels = Math.Max(1, item.StockLevels),
-                    LeadTimes = Math.Max(1, item.LeadTimes),
+                    ProcurementLeadTime = Math.Max(1, item.ProcurementLeadTime),
                     DayOfWeek = item.DayOfWeek,
                     Month = item.Month,
                     Quarter = item.Quarter,
@@ -666,7 +667,8 @@ namespace MLINTERNSHIP
                     PriceChange = fullData[i].PriceChange,
                     StockLevels = fullData[i].StockLevels,
                     StockRatio = fullData[i].StockRatio,
-                    LeadTimes = fullData[i].LeadTimes,
+                    ProcurementLeadTime = fullData[i].ProcurementLeadTime,
+                    ManufacturingLeadTime = fullData[i].ManufacturingLeadTime,
                     ProphetForecast = prophetForecast,
                     IsWeekend = fullData[i].DayOfWeek == 0 || fullData[i].DayOfWeek == 6 ? 1 : 0,
                     IsMonthEnd = fullData[i].Date.Day >= 28 ? 1 : 0,
@@ -744,7 +746,7 @@ namespace MLINTERNSHIP
             {
         d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
         d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
-        d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.LeadTimes, d.ProphetForecast,
+        d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime, d.ManufacturingLeadTime, d.ProphetForecast,
         d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd, d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
             float[] labelsTrain = trainData.Select(d => d.Demand).ToArray();
@@ -769,7 +771,7 @@ namespace MLINTERNSHIP
             {
         d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
         d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
-        d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.LeadTimes, d.ProphetForecast,
+        d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime,d.ManufacturingLeadTime, d.ProphetForecast,
         d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd, d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
             float[] predictions = regressor.Predict(data);
@@ -821,7 +823,8 @@ namespace MLINTERNSHIP
                     PriceChange = 0,
                     StockLevels = historicalData.Last().StockLevels,
                     StockRatio = historicalData.Last().StockRatio,
-                    LeadTimes = historicalData.Last().LeadTimes,
+                    ProcurementLeadTime = historicalData.Last().ProcurementLeadTime,
+                    ManufacturingLeadTime = historicalData.Last().ManufacturingLeadTime,
                     ProphetForecast = prophetForecasts.ElementAtOrDefault(i),
                     IsWeekend = futureDate.DayOfWeek == DayOfWeek.Saturday || futureDate.DayOfWeek == DayOfWeek.Sunday ? 1 : 0,
                     IsMonthEnd = futureDate.Day >= 28 ? 1 : 0,

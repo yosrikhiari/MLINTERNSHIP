@@ -265,7 +265,8 @@ for sku in range(1, NUM_SKUS + 1):
 
         # Other variables with improved logic
         demographics = random.choice(DEMOGRAPHICS)
-        lead_times = random.randint(3, 25)
+        # FIXED: Generate separate lead times for different contexts
+        procurement_lead_time = random.randint(3, 25)  # Time to procure materials
         order_quantities = max(50, int(demand * random.uniform(0.8, 1.5)))
         shipping_times = random.randint(2, 8)
         carrier = random.choice(CARRIERS)
@@ -273,7 +274,7 @@ for sku in range(1, NUM_SKUS + 1):
         supplier = random.choice(SUPPLIERS)
         location = random.choice(LOCATIONS)
         production_volumes = max(products_sold * 2, random.randint(200, 800))
-        manufacturing_lead_time = random.randint(5, 25)
+        manufacturing_lead_time = random.randint(5, 25)  # Time to manufacture
         manufacturing_costs = round(price * random.uniform(0.3, 0.7), 2)
         inspection = random.choices(INSPECTION_RESULTS, weights=[85, 10, 5])[0]
         defect_rates = round(random.uniform(0.5, 3.5), 2)
@@ -281,7 +282,7 @@ for sku in range(1, NUM_SKUS + 1):
         route = random.choice(ROUTES)
         costs = round(revenue * random.uniform(0.6, 0.8), 2)
 
-        # Additional features (removed ds and y variables)
+        # Additional features
         is_weekend = 1 if date.weekday() >= 5 else 0
         day_of_week = date.weekday()
         month = date.month
@@ -305,26 +306,26 @@ for sku in range(1, NUM_SKUS + 1):
         # Seasonality indicators
         seasonal_mult = get_seasonal_multiplier(date, product_type)
 
-        # Updated data row - removed ds and y columns
+        # FIXED: Updated data row - removed duplicate lead time, kept distinct ones
         data.append([
             date.strftime('%Y-%m-%d'), product_type, f'SKU{sku}', price, availability,
-            products_sold, round(revenue, 2), demographics, stock_levels, lead_times,
+            products_sold, round(revenue, 2), demographics, stock_levels, procurement_lead_time,
             order_quantities, shipping_times, carrier, shipping_costs, supplier,
-            location, lead_times, production_volumes, manufacturing_lead_time,
+            location, production_volumes, manufacturing_lead_time,
             round(manufacturing_costs, 2), inspection, defect_rates, transport_mode, 
             route, round(costs, 2), is_weekend, day_of_week, month, quarter, year, 
             is_holiday, holiday_name, is_event, event_name, round(seasonal_mult, 3)
         ])
 
-# Write to CSV - updated header without ds and y columns
+# FIXED: Write to CSV - updated header to reflect distinct lead time columns
 with open(CSV_FILE_PATH, 'w', newline='', encoding='utf-8') as csvfile:
     writer = csv.writer(csvfile)
     writer.writerow([
         'Date', 'Product type', 'SKU', 'Price', 'Availability',
         'Number of products sold', 'Revenue generated', 'Customer demographics',
-        'Stock levels', 'Lead times', 'Order quantities', 'Shipping times',
+        'Stock levels', 'Procurement lead time', 'Order quantities', 'Shipping times',
         'Shipping carriers', 'Shipping costs', 'Supplier name', 'Location',
-        'Lead time', 'Production volumes', 'Manufacturing lead time',
+        'Production volumes', 'Manufacturing lead time',
         'Manufacturing costs', 'Inspection results', 'Defect rates',
         'Transportation modes', 'Routes', 'Costs', 'is_weekend', 'day_of_week',
         'month', 'quarter', 'year', 'is_holiday', 'holiday_name', 'is_event',
@@ -354,3 +355,9 @@ for product, multipliers in PRODUCT_EVENT_MULTIPLIERS.items():
     print(f"\n{product.capitalize()}:")
     for event_type, mult in multipliers.items():
         print(f"  - {event_type}: {mult}x additional multiplier")
+
+print("\n=== FIXED REDUNDANCY ISSUES ===")
+print("✓ Removed duplicate 'Lead time' column")
+print("✓ Kept distinct lead time columns:")
+print("  - 'Procurement lead time': Time to procure raw materials")
+print("  - 'Manufacturing lead time': Time to manufacture products")
