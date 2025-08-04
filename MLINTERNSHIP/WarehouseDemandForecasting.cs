@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using CsvHelper;
 using CsvHelper.Configuration.Attributes;
@@ -233,7 +234,7 @@ namespace MLINTERNSHIP
             try
             {
                 var groupedData = supplyChainData.GroupBy(d => d.SKU);
-                var results = new List<ForecastResult>();
+                var results = new ConcurrentBag<ForecastResult>();
 
                 Parallel.ForEach(groupedData, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (group) =>
                 {
@@ -265,7 +266,7 @@ namespace MLINTERNSHIP
                     if (productData.Count >= 21)
                     {
                         var result = ForecastDemand(productData, group.Key, horizon);
-                        lock (results) { results.Add(result); }
+                        results.Add(result);
                     }
                     else
                     {
@@ -274,7 +275,7 @@ namespace MLINTERNSHIP
                     }
                 });
 
-                return results;
+                return results.ToList();
             }
             catch (Exception ex)
             {
@@ -282,8 +283,6 @@ namespace MLINTERNSHIP
                 throw;
             }
         }
-
-
 
 
         /////////////////////For Each Product Processing/////////////////////
