@@ -235,7 +235,7 @@ namespace MLINTERNSHIP
                 var groupedData = supplyChainData.GroupBy(d => d.SKU);
                 var results = new List<ForecastResult>();
 
-                foreach (var group in groupedData)
+                Parallel.ForEach(groupedData, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (group) =>
                 {
                     var productData = group.OrderBy(d => d.Date)
                         .Select(d => new DemandData
@@ -265,14 +265,14 @@ namespace MLINTERNSHIP
                     if (productData.Count >= 21)
                     {
                         var result = ForecastDemand(productData, group.Key, horizon);
-                        results.Add(result);
+                        lock (results) { results.Add(result); }
                     }
                     else
                     {
-                        Console.WriteLine($"Insufficient data for {group.Key} ({productData.Count} points). Using fallback forecast.");
-                        results.Add(CreateFallbackForecast(group.Key, productData, horizon));
+                        var fallbackResult = CreateFallbackForecast(group.Key, productData, horizon);
+                        lock (results) { results.Add(fallbackResult); }
                     }
-                }
+                });
 
                 return results;
             }

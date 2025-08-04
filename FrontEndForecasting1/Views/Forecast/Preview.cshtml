@@ -21,74 +21,180 @@
                 <p class="mb-0"><strong>Records Loaded:</strong> @Model.Count</p>
             </div>
 
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">CSV Data Sample (First 100 rows)</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table id="dataPreviewTable" class="table table-striped table-bordered table-sm">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th>SKU</th>
-                                    <th>Date</th>
-                                    <th>Product Type</th>
-                                    <th>Price</th>
-                                    <th>Availability</th>
-                                    <th>Products Sold</th>
-                                    <th>Revenue</th>
-                                    <th>Stock Levels</th>
-                                    <th>Procurement Lead Time</th>
-                                    <th>Order Quantities</th>
-                                    <th>Shipping Times</th>
-                                    <th>Shipping Carriers</th>
-                                    <th>Shipping Costs</th>
-                                    <th>Supplier Name</th>
-                                    <th>Location</th>
-                                    <th>Production Volumes</th>
-                                    <th>Manufacturing Lead Time</th>
-                                    <th>Manufacturing Costs</th>
-                                    <th>Inspection Results</th>
-                                    <th>Defect Rates</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in Model.Take(100))
-                                {
-                                    <tr>
-                                        <td>@item.SKU</td>
-                                        <td>@item.Date.ToString("yyyy-MM-dd")</td>
-                                        <td>@item.ProductType</td>
-                                        <td>@item.Price.ToString("C")</td>
-                                        <td>@item.Availability</td>
-                                        <td>@item.NumberOfProductsSold</td>
-                                        <td>@item.RevenueGenerated.ToString("C")</td>
-                                        <td>@item.StockLevels</td>
-                                        <td>@item.ProcurementLeadTime</td>
-                                        <td>@item.OrderQuantities</td>
-                                        <td>@item.ShippingTimes</td>
-                                        <td>@item.ShippingCarriers</td>
-                                        <td>@item.ShippingCosts.ToString("C")</td>
-                                        <td>@item.SupplierName</td>
-                                        <td>@item.Location</td>
-                                        <td>@item.ProductionVolumes</td>
-                                        <td>@item.ManufacturingLeadTime</td>
-                                        <td>@item.ManufacturingCosts.ToString("C")</td>
-                                        <td>@item.InspectionResults</td>
-                                        <td>@item.DefectRates.ToString("P2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-
-                    @if (Model.Count > 100)
-                    {
-                        <div class="alert alert-info mt-3">
-                            <i class="fas fa-info-circle me-1"></i>
-                            Showing first 100 rows of @Model.Count total records. All data will be used for forecasting.
+            <div class="row mb-4">
+                <div class="col-lg-9">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">CSV Data Sample (First 100 rows)</h5>
                         </div>
-                    }
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table id="dataPreviewTable" class="table table-striped table-bordered table-sm">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>SKU</th>
+                                            <th>Date</th>
+                                            <th>Product Type</th>
+                                            <th>Price</th>
+                                            <th>Availability</th>
+                                            <th>Products Sold</th>
+                                            <th>Revenue</th>
+                                            <th>Stock Levels</th>
+                                            <th>Procurement Lead Time</th>
+                                            <th>Order Quantities</th>
+                                            <th>Shipping Times</th>
+                                            <th>Shipping Carriers</th>
+                                            <th>Shipping Costs</th>
+                                            <th>Supplier Name</th>
+                                            <th>Location</th>
+                                            <th>Production Volumes</th>
+                                            <th>Manufacturing Lead Time</th>
+                                            <th>Manufacturing Costs</th>
+                                            <th>Inspection Results</th>
+                                            <th>Defect Rates</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in Model.Take(100))
+                                        {
+                                            <tr>
+                                                <td>@item.SKU</td>
+                                                <td>@item.Date.ToString("yyyy-MM-dd")</td>
+                                                <td>@item.ProductType</td>
+                                                <td>@item.Price.ToString("C")</td>
+                                                <td>@item.Availability</td>
+                                                <td>@item.NumberOfProductsSold</td>
+                                                <td>@item.RevenueGenerated.ToString("C")</td>
+                                                <td>@item.StockLevels</td>
+                                                <td>@item.ProcurementLeadTime</td>
+                                                <td>@item.OrderQuantities</td>
+                                                <td>@item.ShippingTimes</td>
+                                                <td>@item.ShippingCarriers</td>
+                                                <td>@item.ShippingCosts.ToString("C")</td>
+                                                <td>@item.SupplierName</td>
+                                                <td>@item.Location</td>
+                                                <td>@item.ProductionVolumes</td>
+                                                <td>@item.ManufacturingLeadTime</td>
+                                                <td>@item.ManufacturingCosts.ToString("C")</td>
+                                                <td>@item.InspectionResults</td>
+                                                <td>@item.DefectRates.ToString("P2")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            @if (Model.Count > 100)
+                            {
+                                <div class="alert alert-info mt-3">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Showing first 100 rows of @Model.Count total records. All data will be used for forecasting.
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3">
+                    <div class="card h-100">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="mb-0"><i class="fas fa-ruler me-2"></i>Column Units & Types</h6>
+                        </div>
+                        <div class="card-body p-2" style="max-height: 600px; overflow-y: auto;">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-borderless mb-0">
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">SKU</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Text</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Date</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">YYYY-MM-DD</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Product Type</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Category</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Price</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;"> $ </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Availability</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">%</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Products Sold</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Units</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Revenue</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;"> $ </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Stock Levels</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Units</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Procurement Lead Time</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Days</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Order Quantities</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Units</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Shipping Times</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Number</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Shipping Carriers</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Text</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Shipping Costs</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;"> $ </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Supplier Name</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Text</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Location</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">City</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Production Volumes</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Units</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Manufacturing Lead Time</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Days</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Manufacturing Costs</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;"> $ </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Inspection Results</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">Status</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Defect Rates</td>
+                                            <td class="text-muted" style="font-size: 0.75rem;">%</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="card-footer bg-light p-2">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Units for all @Model.Select(x => x.SKU).Distinct().Count() unique products
+                            </small>
+                        </div>
+                    </div>
                 </div>
             </div>
 
