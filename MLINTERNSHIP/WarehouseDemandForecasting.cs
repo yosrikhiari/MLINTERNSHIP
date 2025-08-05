@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using CsvHelper;
 using CsvHelper.Configuration.Attributes;
 using Microsoft.ML;
@@ -321,25 +322,31 @@ namespace MLINTERNSHIP
                 return CreateFallbackForecast(productId, processedData, horizon);
             }
 
-            var optimalParams = RunEnhancedBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 150);
+            var optimalParams = RunEnhancedBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 50);
             var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
 
             var xgBoostValidationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
             var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, prophetFutureForecasts, horizon);
             var xgBoostFuturePredictions = PredictWithXgBoost(xgBoostModel, xgBoostFutureData);
 
-            var actualValidation = processedData.Skip(trainSize).Select(d => d.Demand).ToList();
+            // Convert to arrays for span usage
+            var actualValidationArray = new float[validationSize];
+            for (int i = 0; i < validationSize; i++)
+            {
+                actualValidationArray[i] = processedData[trainSize + i].Demand;
+            }
 
+            // Use spans for SMAPE calculations
+            var prophetValidationSpan = CollectionsMarshal.AsSpan(prophetValidationForecasts);
+            var xgBoostValidationSpan = CollectionsMarshal.AsSpan(xgBoostValidationPredictions);
+            var actualValidationSpan = actualValidationArray.AsSpan();
 
-            var prophetSMAPE = CalculateSMAPE(prophetValidationForecasts, actualValidation);
-            var xgBoostSMAPE = CalculateSMAPE(xgBoostValidationPredictions, actualValidation);
-
+            var prophetSMAPE = CalculateSMAPE(prophetValidationSpan, actualValidationSpan);
+            var xgBoostSMAPE = CalculateSMAPE(xgBoostValidationSpan, actualValidationSpan);
 
             Console.WriteLine($"Model Performance Comparison for {productId}:");
             Console.WriteLine($"  Prophet SMAPE: {prophetSMAPE:F4}%");
             Console.WriteLine($"  XGBoost SMAPE: {xgBoostSMAPE:F4}%");
-
-
 
             var minSMAPE = Math.Min(prophetSMAPE, xgBoostSMAPE);
             string selectedModel;
@@ -361,11 +368,19 @@ namespace MLINTERNSHIP
                 Console.WriteLine($"  Selected Model: XGBoost (SMAPE: {xgBoostSMAPE:F4}%)");
             }
 
+            // Prepare data for comprehensive metrics calculation using spans
+            var selectedValidationSpan = CollectionsMarshal.AsSpan(selectedValidationPredictions);
+            var trainDataArray = new float[trainSize];
+            for (int i = 0; i < trainSize; i++)
+            {
+                trainDataArray[i] = processedData[i].Demand;
+            }
+            var trainDataSpan = trainDataArray.AsSpan();
 
             var metrics = CalculateComprehensiveMetrics(
-                actualValidation,
-                selectedValidationPredictions,
-                processedData.Take(trainSize).Select(d => d.Demand).ToList()
+                actualValidationSpan,
+                selectedValidationSpan,
+                trainDataSpan
             );
 
             if (!ValidateDataQuality(productData))
@@ -443,23 +458,36 @@ namespace MLINTERNSHIP
         private static (List<float> transformedSeries, TransformationInfo transformationInfo) ApplyOptimalTransformationWithInfo(List<float> series)
         {
             var original = series.ToList();
-            var logTransformed = series.Select(x => (float)Math.Log(x + 1)).ToList();
-            var sqrtTransformed = series.Select(x => (float)Math.Sqrt(x)).ToList();
-            var lambda = 0.5f;
-            var boxCoxTransformed = ApplyBoxCoxTransformation(series, lambda);
+            var seriesSpan = CollectionsMarshal.AsSpan(series);
 
-            var originalSkewness = CalculateSkewness(original);
+            // Allocate arrays for transformations
+            var logTransformed = new float[series.Count];
+            var sqrtTransformed = new float[series.Count];
+            var boxCoxTransformed = new float[series.Count];
+
+            // Apply transformations using spans
+            for (int i = 0; i < seriesSpan.Length; i++)
+            {
+                logTransformed[i] = MathF.Log(seriesSpan[i] + 1);
+                sqrtTransformed[i] = MathF.Sqrt(seriesSpan[i]);
+            }
+
+            const float lambda = 0.5f;
+            ApplyBoxCoxTransformation(seriesSpan, boxCoxTransformed, lambda);
+
+            // Calculate skewness using spans
+            var originalSkewness = CalculateSkewness(seriesSpan);
             var logSkewness = CalculateSkewness(logTransformed);
             var sqrtSkewness = CalculateSkewness(sqrtTransformed);
             var boxCoxSkewness = CalculateSkewness(boxCoxTransformed);
 
             var transformations = new[]
             {
-        (Math.Abs(originalSkewness), original, "None", 0f),
-        (Math.Abs(logSkewness), logTransformed, "Log", 0f),
-        (Math.Abs(sqrtSkewness), sqrtTransformed, "Sqrt", 0f),
-        (Math.Abs(boxCoxSkewness), boxCoxTransformed, "BoxCox", lambda)
-    };
+                (Math.Abs(originalSkewness), original, "None", 0f),
+                (Math.Abs(logSkewness), logTransformed.ToList(), "Log", 0f),
+                (Math.Abs(sqrtSkewness), sqrtTransformed.ToList(), "Sqrt", 0f),
+                (Math.Abs(boxCoxSkewness), boxCoxTransformed.ToList(), "BoxCox", lambda)
+            };
 
             var bestTransformation = transformations.OrderBy(t => t.Item1).First();
 
@@ -472,24 +500,55 @@ namespace MLINTERNSHIP
 
             return (bestTransformation.Item2, transformationInfo);
         }
-        private static float CalculateSkewness(List<float> series)
+        private static float CalculateSkewness(ReadOnlySpan<float> series)
         {
-            var mean = series.Average();
-            var std = (float)Math.Sqrt(series.Select(x => Math.Pow(x - mean, 2)).Average());
+            if (series.Length == 0) return 0;
+
+            float sum = 0;
+            for (int i = 0; i < series.Length; i++)
+            {
+                sum += series[i];
+            }
+            float mean = sum / series.Length;
+
+            float sumSquaredDiff = 0;
+            for (int i = 0; i < series.Length; i++)
+            {
+                float diff = series[i] - mean;
+                sumSquaredDiff += diff * diff;
+            }
+            float std = MathF.Sqrt(sumSquaredDiff / series.Length);
 
             if (std < 1e-10) return 0;
 
-            var skewness = series.Select(x => Math.Pow((x - mean) / std, 3)).Average();
-            return (float)skewness;
-        }
-        private static List<float> ApplyBoxCoxTransformation(List<float> series, float lambda)
-        {
-            if (Math.Abs(lambda) < 1e-10)
+            float sumCubedNorm = 0;
+            for (int i = 0; i < series.Length; i++)
             {
-                return series.Select(x => (float)Math.Log(x + 1)).ToList();
+                float normalizedDiff = (series[i] - mean) / std;
+                sumCubedNorm += normalizedDiff * normalizedDiff * normalizedDiff;
             }
 
-            return series.Select(x => (float)((Math.Pow(x + 1, lambda) - 1) / lambda)).ToList();
+            return sumCubedNorm / series.Length;
+        }
+        private static void ApplyBoxCoxTransformation(ReadOnlySpan<float> input, Span<float> output, float lambda)
+        {
+            if (input.Length != output.Length)
+                throw new ArgumentException("Input and output spans must have the same length");
+
+            if (Math.Abs(lambda) < 1e-10)
+            {
+                for (int i = 0; i < input.Length; i++)
+                {
+                    output[i] = MathF.Log(input[i] + 1);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < input.Length; i++)
+                {
+                    output[i] = (MathF.Pow(input[i] + 1, lambda) - 1) / lambda;
+                }
+            }
         }
         private static float CalculateDemandAcceleration(List<float> series, int index)
         {
@@ -625,21 +684,37 @@ namespace MLINTERNSHIP
         private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostData(List<DemandData> fullData, int startIndex, int count, List<float>? prophetForecasts = null)
         {
             var xgBoostData = new List<EnhancedXgBoostInput>();
+
             for (int i = startIndex; i < startIndex + count && i < fullData.Count; i++)
             {
                 if (i < 21) continue;
 
                 var demand = fullData[i].Demand;
-                var recentDemands = fullData.Skip(i - 21).Take(21).Select(d => d.Demand).ToList();
-                var movingAvg3 = recentDemands.TakeLast(3).Average();
-                var movingAvg7 = recentDemands.TakeLast(7).Average();
-                var movingAvg14 = recentDemands.TakeLast(14).Average();
-                var movingAvg21 = recentDemands.Average();
-                var exponentialSmoothing = CalculateExponentialSmoothing(recentDemands, 0.3f);
-                var volatility = (float)Math.Sqrt(recentDemands.TakeLast(7).Select(d => Math.Pow(d - movingAvg7, 2)).Average());
-                var trend = recentDemands.Count >= 7 ? (recentDemands.TakeLast(3).Average() - recentDemands.Take(3).Average()) / 18f : 0;
-                var prophetForecast = (prophetForecasts != null && i - startIndex < prophetForecasts.Count) ? prophetForecasts[i - startIndex] : 0;
-                var rollingStd7 = (float)StandardDeviation(recentDemands.TakeLast(7));
+
+                // Get recent demands as span for efficient calculations
+                var recentDemandsArray = new float[21];
+                for (int j = 0; j < 21; j++)
+                {
+                    recentDemandsArray[j] = fullData[i - 21 + j].Demand;
+                }
+                var recentDemandsSpan = recentDemandsArray.AsSpan();
+
+                // Use span-based calculations
+                var movingAvg3 = CalculateMovingAverage(recentDemandsSpan, 3);
+                var movingAvg7 = CalculateMovingAverage(recentDemandsSpan, 7);
+                var movingAvg14 = CalculateMovingAverage(recentDemandsSpan, 14);
+                var movingAvg21 = CalculateMovingAverage(recentDemandsSpan, 21);
+
+                var exponentialSmoothing = CalculateExponentialSmoothing(recentDemandsSpan, 0.3f);
+                var volatility = CalculateStandardDeviation(recentDemandsSpan.Slice(14)); // Last 7 days
+
+                var trend = recentDemandsSpan.Length >= 7 ?
+                    (CalculateMovingAverage(recentDemandsSpan.Slice(18), 3) - CalculateMovingAverage(recentDemandsSpan.Slice(0, 3), 3)) / 18f : 0;
+
+                var prophetForecast = (prophetForecasts != null && i - startIndex < prophetForecasts.Count) ?
+                    prophetForecasts[i - startIndex] : 0;
+
+                var rollingStd7 = CalculateStandardDeviation(recentDemandsSpan.Slice(14));
                 var movingAvgDiff = movingAvg7 - movingAvg21;
                 var lag1Diff = demand - fullData[i - 1].Demand;
                 var lag7Diff = i >= 7 ? demand - fullData[i - 7].Demand : 0;
@@ -681,11 +756,13 @@ namespace MLINTERNSHIP
             }
             return xgBoostData;
         }
-        private static float CalculateExponentialSmoothing(List<float> data, float alpha)
+
+        private static float CalculateExponentialSmoothing(ReadOnlySpan<float> data, float alpha)
         {
-            if (data.Count == 0) return 0;
-            var smoothed = data[0];
-            for (int i = 1; i < data.Count; i++)
+            if (data.Length == 0) return 0;
+
+            float smoothed = data[0];
+            for (int i = 1; i < data.Length; i++)
             {
                 smoothed = alpha * data[i] + (1 - alpha) * smoothed;
             }
@@ -701,6 +778,14 @@ namespace MLINTERNSHIP
         {
             var bestParams = new OptimizedHyperparameters();
             var bestError = double.MaxValue;
+
+            // Pre-allocate arrays for actual values to avoid repeated allocations
+            var validationActualArray = new float[validationData.Count];
+            for (int i = 0; i < validationData.Count; i++)
+            {
+                validationActualArray[i] = validationData[i].Demand;
+            }
+            var validationActualSpan = validationActualArray.AsSpan();
 
             for (int i = 0; i < iterations; i++)
             {
@@ -720,8 +805,10 @@ namespace MLINTERNSHIP
                 {
                     var model = TrainXgBoost(trainData, candidateParams);
                     var predictions = PredictWithXgBoost(model, validationData);
-                    var actual = validationData.Select(d => d.Demand).ToList();
-                    var error = CalculateSMAPE(predictions, actual);
+
+                    // Use span for SMAPE calculation
+                    var predictionsSpan = CollectionsMarshal.AsSpan(predictions);
+                    var error = CalculateSMAPE(predictionsSpan, validationActualSpan);
 
                     if (error < bestError)
                     {
@@ -792,7 +879,11 @@ namespace MLINTERNSHIP
                 var movingAvg7 = currentDemands.TakeLast(7).Average();
                 var movingAvg14 = currentDemands.TakeLast(14).Average();
                 var movingAvg21 = currentDemands.TakeLast(21).Average();
-                var exponentialSmoothing = CalculateExponentialSmoothing(currentDemands.TakeLast(21).ToList(), 0.3f);
+
+                // Fix: Convert List<float> to array first, then create span
+                var currentDemandsLast21 = currentDemands.TakeLast(21).ToArray();
+                var exponentialSmoothing = CalculateExponentialSmoothing(currentDemandsLast21.AsSpan(), 0.3f);
+
                 var volatility = (float)Math.Sqrt(currentDemands.TakeLast(7).Select(d => Math.Pow(d - movingAvg7, 2)).Average());
                 var trend = currentDemands.Count >= 7 ? (currentDemands.TakeLast(3).Average() - currentDemands.Take(3).Average()) / 18f : 0;
                 var rollingStd7 = (float)StandardDeviation(currentDemands.TakeLast(7));
@@ -839,41 +930,94 @@ namespace MLINTERNSHIP
         }
 
 
-
         /////////////////////Model Evaluation and Selection/////////////////////
-        private static double CalculateSMAPE(List<float> predictions, List<float> actual)
+        private static double CalculateSMAPE(ReadOnlySpan<float> predictions, ReadOnlySpan<float> actual)
         {
-            if (predictions.Count != actual.Count)
+            if (predictions.Length != actual.Length)
                 throw new ArgumentException("Predictions and actual values must have the same length");
 
             double sum = 0;
-            for (int i = 0; i < predictions.Count; i++)
+            for (int i = 0; i < predictions.Length; i++)
             {
-                var a = actual[i];
-                var p = predictions[i];
+                float a = actual[i];
+                float p = predictions[i];
                 sum += 2 * Math.Abs(a - p) / (Math.Abs(a) + Math.Abs(p) + 1e-10);
             }
-            return (sum / predictions.Count) * 100;
+            return (sum / predictions.Length) * 100;
         }
-        private static EvaluationMetrics CalculateComprehensiveMetrics(List<float> actual, List<float> predicted, List<float> trainData)
+        private static EvaluationMetrics CalculateComprehensiveMetrics(ReadOnlySpan<float> actual, ReadOnlySpan<float> predicted, ReadOnlySpan<float> trainData)
         {
-            if (actual.Count != predicted.Count)
+            if (actual.Length != predicted.Length)
                 throw new ArgumentException("Actual and predicted values must have the same length");
 
-            var n = actual.Count;
-            var actualMean = actual.Average();
+            var n = actual.Length;
 
-            var mape = actual.Zip(predicted, (a, p) => a == 0 ? 0 : Math.Abs((a - p) / a))
-                            .Where(x => !double.IsNaN(x) && !double.IsInfinity(x))
-                            .Average() * 100;
-            var rmse = Math.Sqrt(actual.Zip(predicted, (a, p) => Math.Pow(a - p, 2)).Average());
-            var mae = actual.Zip(predicted, (a, p) => Math.Abs(a - p)).Average();
-            var ss_res = actual.Zip(predicted, (a, p) => Math.Pow(a - p, 2)).Sum();
-            var ss_tot = actual.Select(a => Math.Pow(a - actualMean, 2)).Sum();
-            var r2 = ss_tot == 0 ? 1.0 : 1 - (ss_res / ss_tot);
-            var smape = actual.Zip(predicted, (a, p) => 2 * Math.Abs(a - p) / (Math.Abs(a) + Math.Abs(p) + 1e-10)).Average() * 100;
-            var naiveForecastError = trainData.Skip(1).Zip(trainData, (curr, prev) => Math.Abs(curr - prev)).Average();
-            var mase = mae / (naiveForecastError + 1e-10);
+            // Calculate mean using span
+            float actualSum = 0;
+            for (int i = 0; i < actual.Length; i++)
+            {
+                actualSum += actual[i];
+            }
+            float actualMean = actualSum / actual.Length;
+
+            // Calculate metrics using spans
+            float mapeSum = 0;
+            float rmseSum = 0;
+            float maeSum = 0;
+            float ssRes = 0;
+            float smapeSum = 0;
+            int mapeCount = 0;
+
+            for (int i = 0; i < actual.Length; i++)
+            {
+                float a = actual[i];
+                float p = predicted[i];
+                float error = a - p;
+                float absError = Math.Abs(error);
+
+                // MAPE calculation (avoid division by zero)
+                if (a != 0)
+                {
+                    mapeSum += absError / Math.Abs(a);
+                    mapeCount++;
+                }
+
+                // RMSE
+                rmseSum += error * error;
+
+                // MAE
+                maeSum += absError;
+
+                // SS_res for R²
+                ssRes += error * error;
+
+                // SMAPE
+                smapeSum += 2 * absError / (Math.Abs(a) + Math.Abs(p) + 1e-10f);
+            }
+
+            var mape = mapeCount > 0 ? (mapeSum / mapeCount) * 100 : 0;
+            var rmse = Math.Sqrt(rmseSum / actual.Length);
+            var mae = maeSum / actual.Length;
+            var smape = (smapeSum / actual.Length) * 100;
+
+            // Calculate SS_tot for R²
+            float ssTot = 0;
+            for (int i = 0; i < actual.Length; i++)
+            {
+                float diff = actual[i] - actualMean;
+                ssTot += diff * diff;
+            }
+
+            var r2 = ssTot == 0 ? 1.0 : 1 - (ssRes / ssTot);
+
+            // Calculate naive forecast error for MASE
+            float naiveForecastErrorSum = 0;
+            for (int i = 1; i < trainData.Length; i++)
+            {
+                naiveForecastErrorSum += Math.Abs(trainData[i] - trainData[i - 1]);
+            }
+            var naiveForecastError = naiveForecastErrorSum / (trainData.Length - 1);
+            var mase = naiveForecastError > 0 ? mae / naiveForecastError : 0;
 
             return new EvaluationMetrics
             {
@@ -892,8 +1036,41 @@ namespace MLINTERNSHIP
             return stdDev / mean < 2.0;
         }
 
+        private static float CalculateMovingAverage(ReadOnlySpan<float> data, int windowSize)
+        {
+            if (data.Length == 0) return 0;
 
+            int actualWindow = Math.Min(windowSize, data.Length);
+            float sum = 0;
 
+            for (int i = data.Length - actualWindow; i < data.Length; i++)
+            {
+                sum += data[i];
+            }
+
+            return sum / actualWindow;
+        }
+
+        private static float CalculateStandardDeviation(ReadOnlySpan<float> values)
+        {
+            if (values.Length == 0) return 0;
+
+            float sum = 0;
+            for (int i = 0; i < values.Length; i++)
+            {
+                sum += values[i];
+            }
+            float mean = sum / values.Length;
+
+            float sumSquaredDiff = 0;
+            for (int i = 0; i < values.Length; i++)
+            {
+                float diff = values[i] - mean;
+                sumSquaredDiff += diff * diff;
+            }
+
+            return MathF.Sqrt(sumSquaredDiff / values.Length);
+        }
 
 
         /////////////////////Post-Processing/////////////////////
