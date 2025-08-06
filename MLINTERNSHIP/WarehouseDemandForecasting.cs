@@ -8,7 +8,10 @@ using Microsoft.ML;
 using Microsoft.ML.Data;
 using Newtonsoft.Json;
 using XGBoostSharp;
-
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace MLINTERNSHIP
 {
@@ -110,14 +113,14 @@ namespace MLINTERNSHIP
         public string EventName { get; set; } = string.Empty;
         public float SeasonalMultiplier { get; set; }
 
-      
+
         public TransformationInfo? TransformationInfo { get; set; }
     }
 
     public class TransformationInfo
     {
-        public string TransformationType { get; set; } = "None"; 
-        public float Lambda { get; set; } = 0.5f; 
+        public string TransformationType { get; set; } = "None";
+        public float Lambda { get; set; } = 0.5f;
         public List<float> OriginalSeries { get; set; } = new();
     }
     public class EnhancedXgBoostInput
@@ -191,6 +194,670 @@ namespace MLINTERNSHIP
         public double ProphetSMAPE { get; set; }
         public double XgBoostSMAPE { get; set; }
     }
+
+    public class Matrix
+    {
+        private readonly double[,] data;
+        public int Rows { get; }
+        public int Cols { get; }
+
+        public Matrix(int rows, int cols)
+        {
+            Rows = rows;
+            Cols = cols;
+            data = new double[rows, cols];
+        }
+
+        public Matrix(double[,] data)
+        {
+            Rows = data.GetLength(0);
+            Cols = data.GetLength(1);
+            this.data = new double[Rows, Cols];
+            Array.Copy(data, this.data, data.Length);
+        }
+
+        public double this[int row, int col]
+        {
+            get => data[row, col];
+            set => data[row, col] = value;
+        }
+
+        public static Matrix operator +(Matrix a, Matrix b)
+        {
+            if (a.Rows != b.Rows || a.Cols != b.Cols)
+                throw new ArgumentException("Matrix dimensions must match for addition");
+
+            var result = new Matrix(a.Rows, a.Cols);
+            for (int i = 0; i < a.Rows; i++)
+                for (int j = 0; j < a.Cols; j++)
+                    result[i, j] = a[i, j] + b[i, j];
+            return result;
+        }
+
+        public static Matrix operator *(Matrix a, Matrix b)
+        {
+            if (a.Cols != b.Rows)
+                throw new ArgumentException("Matrix dimensions incompatible for multiplication");
+
+            var result = new Matrix(a.Rows, b.Cols);
+            for (int i = 0; i < a.Rows; i++)
+            {
+                for (int j = 0; j < b.Cols; j++)
+                {
+                    double sum = 0;
+                    for (int k = 0; k < a.Cols; k++)
+                        sum += a[i, k] * b[k, j];
+                    result[i, j] = sum;
+                }
+            }
+            return result;
+        }
+
+        public Matrix Transpose()
+        {
+            var result = new Matrix(Cols, Rows);
+            for (int i = 0; i < Rows; i++)
+                for (int j = 0; j < Cols; j++)
+                    result[j, i] = data[i, j];
+            return result;
+        }
+
+        public Matrix Inverse()
+        {
+            if (Rows != Cols)
+                throw new InvalidOperationException("Matrix must be square to compute inverse");
+
+            var n = Rows;
+            var augmented = new Matrix(n, 2 * n);
+
+            // Create augmented matrix [A|I]
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = 0; j < n; j++)
+                    augmented[i, j] = data[i, j];
+                augmented[i, i + n] = 1.0;
+            }
+
+            // Gauss-Jordan elimination with partial pivoting
+            for (int i = 0; i < n; i++)
+            {
+                // Find pivot with better numerical stability
+                int pivotRow = i;
+                double maxPivot = Math.Abs(augmented[i, i]);
+
+                for (int k = i + 1; k < n; k++)
+                {
+                    if (Math.Abs(augmented[k, i]) > maxPivot)
+                    {
+                        pivotRow = k;
+                        maxPivot = Math.Abs(augmented[k, i]);
+                    }
+                }
+
+                // Check for singular matrix with better tolerance
+                if (maxPivot < 1e-12)
+                {
+                    // Add regularization to diagonal
+                    for (int j = 0; j < n; j++)
+                        augmented[j, j] += 1e-6;
+
+                    // Retry with regularized matrix
+                    maxPivot = Math.Abs(augmented[i, i]);
+                    if (maxPivot < 1e-12)
+                        throw new InvalidOperationException("Matrix is singular and cannot be inverted");
+                }
+
+                // Swap rows if needed
+                if (pivotRow != i)
+                {
+                    for (int j = 0; j < 2 * n; j++)
+                    {
+                        (augmented[i, j], augmented[pivotRow, j]) = (augmented[pivotRow, j], augmented[i, j]);
+                    }
+                }
+
+                // Scale pivot row
+                double pivot = augmented[i, i];
+                for (int j = 0; j < 2 * n; j++)
+                    augmented[i, j] /= pivot;
+
+                // Eliminate column
+                for (int k = 0; k < n; k++)
+                {
+                    if (k != i)
+                    {
+                        double factor = augmented[k, i];
+                        for (int j = 0; j < 2 * n; j++)
+                            augmented[k, j] -= factor * augmented[i, j];
+                    }
+                }
+            }
+
+            // Extract inverse matrix
+            var inverse = new Matrix(n, n);
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                    inverse[i, j] = augmented[i, j + n];
+
+            return inverse;
+        }
+
+        public static Matrix Identity(int size)
+        {
+            var result = new Matrix(size, size);
+            for (int i = 0; i < size; i++)
+                result[i, i] = 1.0;
+            return result;
+        }
+    }
+
+    public class RBFKernel
+    {
+        public double LengthScale { get; set; } = 1.0;
+        public double Variance { get; set; } = 1.0;
+
+        public double Compute(double[] x1, double[] x2)
+        {
+            if (x1.Length != x2.Length)
+                throw new ArgumentException("Input dimensions must match");
+
+            double sumSquaredDiff = 0;
+            for (int i = 0; i < x1.Length; i++)
+            {
+                double diff = x1[i] - x2[i];
+                sumSquaredDiff += diff * diff;
+            }
+
+            // Fixed: Proper RBF kernel formula
+            double result = Variance * Math.Exp(-0.5 * sumSquaredDiff / (LengthScale * LengthScale));
+
+            // Ensure numerical stability
+            return Math.Max(result, 1e-15);
+        }
+
+        public Matrix ComputeKernelMatrix(List<double[]> points1, List<double[]> points2)
+        {
+            var K = new Matrix(points1.Count, points2.Count);
+            for (int i = 0; i < points1.Count; i++)
+            {
+                for (int j = 0; j < points2.Count; j++)
+                {
+                    K[i, j] = Compute(points1[i], points2[j]);
+                }
+            }
+            return K;
+        }
+    }
+
+    public class GaussianProcess
+    {
+        private readonly RBFKernel kernel;
+        private readonly double noiseVariance;
+        private List<double[]> trainingInputs;
+        private List<double> trainingOutputs;
+        private Matrix KInverse;
+
+        public GaussianProcess(double lengthScale = 2.0, double signalVariance = 2.0, double noiseVariance = 0.1)
+        {
+            kernel = new RBFKernel { LengthScale = lengthScale, Variance = signalVariance };
+            this.noiseVariance = noiseVariance;
+            trainingInputs = new List<double[]>();
+            trainingOutputs = new List<double>();
+        }
+
+        public void Fit(List<double[]> inputs, List<double> outputs)
+        {
+            if (inputs.Count != outputs.Count)
+                throw new ArgumentException("Input and output counts must match");
+
+            trainingInputs = inputs.Select(x => (double[])x.Clone()).ToList();
+            trainingOutputs = new List<double>(outputs);
+
+            // Normalize outputs for better numerical stability
+            var outputMean = outputs.Average();
+            var outputStd = Math.Sqrt(outputs.Select(y => (y - outputMean) * (y - outputMean)).Average());
+
+            if (outputStd < 1e-10) outputStd = 1.0;
+
+            // Store normalization parameters (you'll need to add these fields to the class)
+            // this.outputMean = outputMean;
+            // this.outputStd = outputStd;
+
+            // Compute kernel matrix K
+            var K = kernel.ComputeKernelMatrix(trainingInputs, trainingInputs);
+
+            // Add noise and regularization to diagonal
+            double regularization = Math.Max(noiseVariance, 1e-6);
+            for (int i = 0; i < K.Rows; i++)
+                K[i, i] += regularization;
+
+            // Compute and store K^(-1) with multiple attempts
+            int maxAttempts = 3;
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    KInverse = K.Inverse();
+                    return; // Success
+                }
+                catch (Exception)
+                {
+                    if (attempt == maxAttempts - 1)
+                        throw; // Last attempt failed
+
+                    // Add more regularization and try again
+                    regularization *= 10;
+                    for (int i = 0; i < K.Rows; i++)
+                        K[i, i] += regularization;
+                }
+            }
+        }
+
+        public (double mean, double variance) Predict(double[] testPoint)
+        {
+            if (trainingInputs.Count == 0)
+                return (0.0, kernel.Variance);
+
+            try
+            {
+                // Compute k* (covariance between test point and training points)
+                var kStar = new Matrix(trainingInputs.Count, 1);
+                for (int i = 0; i < trainingInputs.Count; i++)
+                    kStar[i, 0] = kernel.Compute(testPoint, trainingInputs[i]);
+
+                // Compute k** (variance at test point)
+                double kStarStar = kernel.Compute(testPoint, testPoint);
+
+                // Convert training outputs to matrix
+                var y = new Matrix(trainingOutputs.Count, 1);
+                for (int i = 0; i < trainingOutputs.Count; i++)
+                    y[i, 0] = trainingOutputs[i];
+
+                // Compute mean: k*^T K^(-1) y
+                var meanMatrix = kStar.Transpose() * KInverse * y;
+                var mean = meanMatrix[0, 0];
+
+                // Compute variance: k** - k*^T K^(-1) k*
+                var varianceMatrix = kStar.Transpose() * KInverse * kStar;
+                var variance = kStarStar - varianceMatrix[0, 0];
+
+                // Ensure variance is positive and numerically stable
+                variance = Math.Max(variance, 1e-8);
+
+                // Clamp mean to reasonable bounds
+                mean = Math.Max(-100, Math.Min(100, mean));
+
+                return (mean, variance);
+            }
+            catch (Exception)
+            {
+                // Fallback to prior if computation fails
+                return (0.0, kernel.Variance);
+            }
+        }
+    }
+
+    public class ProperBayesianOptimization
+    {
+        private readonly Random random;
+        private readonly List<double[]> evaluatedPoints;
+        private readonly List<double> evaluatedValues;
+        private readonly double[] lowerBounds;
+        private readonly double[] upperBounds;
+        private readonly int dimensions;
+        private readonly GaussianProcess gp;
+
+        public ProperBayesianOptimization(double[] lowerBounds, double[] upperBounds, int seed = 42)
+        {
+            this.random = new Random(seed);
+            this.lowerBounds = (double[])lowerBounds.Clone();
+            this.upperBounds = (double[])upperBounds.Clone();
+            this.dimensions = lowerBounds.Length;
+            this.evaluatedPoints = new List<double[]>();
+            this.evaluatedValues = new List<double>();
+            this.gp = new GaussianProcess(lengthScale: 1.0, signalVariance: 1.0, noiseVariance: 0.01);
+        }
+
+        public OptimizedHyperparameters OptimizeHyperparameters(
+            Func<OptimizedHyperparameters, double> objectiveFunction,
+            int maxIterations = 50,
+            int randomInitPoints = 10)
+        {
+            Console.WriteLine($"Starting Bayesian Optimization with {maxIterations} iterations");
+
+            // Phase 1: Random initialization
+            for (int i = 0; i < Math.Min(randomInitPoints, maxIterations); i++)
+            {
+                var randomParams = SampleRandomPoint();
+                var hyperparams = VectorToHyperparameters(randomParams);
+                var score = objectiveFunction(hyperparams);
+
+                evaluatedPoints.Add(randomParams);
+                evaluatedValues.Add(score);
+
+                Console.WriteLine($"Random Init {i + 1}/{randomInitPoints}: Score = {score:F4}");
+                Console.WriteLine($"  Params: LR={hyperparams.LearningRate:F3}, Depth={hyperparams.MaxDepth}, Trees={hyperparams.NumTrees}");
+            }
+
+            // Phase 2: Bayesian optimization iterations
+            for (int iter = randomInitPoints; iter < maxIterations; iter++)
+            {
+                // Update GP with all evaluated points
+                gp.Fit(evaluatedPoints, evaluatedValues);
+
+                // Find next point using Expected Improvement
+                var nextPoint = OptimizeAcquisitionFunction();
+                var hyperparams = VectorToHyperparameters(nextPoint);
+                var score = objectiveFunction(hyperparams);
+
+                evaluatedPoints.Add(nextPoint);
+                evaluatedValues.Add(score);
+
+                var bestSoFar = evaluatedValues.Min();
+                Console.WriteLine($"BO Iter {iter - randomInitPoints + 1}/{maxIterations - randomInitPoints}: Score = {score:F4}, Best = {bestSoFar:F4}");
+                Console.WriteLine($"  Params: LR={hyperparams.LearningRate:F3}, Depth={hyperparams.MaxDepth}, Trees={hyperparams.NumTrees}");
+            }
+
+            // Return best hyperparameters found
+            var bestIndex = evaluatedValues.IndexOf(evaluatedValues.Min());
+            var bestParams = VectorToHyperparameters(evaluatedPoints[bestIndex]);
+
+            Console.WriteLine($"\nOptimization Complete! Best Score: {evaluatedValues[bestIndex]:F4}");
+            Console.WriteLine($"Best Parameters:");
+            Console.WriteLine($"  Learning Rate: {bestParams.LearningRate:F4}");
+            Console.WriteLine($"  Max Depth: {bestParams.MaxDepth}");
+            Console.WriteLine($"  Num Trees: {bestParams.NumTrees}");
+            Console.WriteLine($"  Subsample: {bestParams.Subsample:F3}");
+            Console.WriteLine($"  ColSample ByTree: {bestParams.ColsampleBytree:F3}");
+
+            return bestParams;
+        }
+
+        private double[] SampleRandomPoint()
+        {
+            var point = new double[dimensions];
+            for (int i = 0; i < dimensions; i++)
+            {
+                point[i] = lowerBounds[i] + random.NextDouble() * (upperBounds[i] - lowerBounds[i]);
+            }
+            return point;
+        }
+
+        private double[] OptimizeAcquisitionFunction()
+        {
+            const int candidatePoints = 2000;
+            var bestPoint = SampleRandomPoint();
+            var bestAcquisition = double.MinValue;
+
+            // Random search for acquisition function optimization
+            for (int i = 0; i < candidatePoints; i++)
+            {
+                var candidate = SampleRandomPoint();
+                var acquisitionValue = ExpectedImprovement(candidate);
+
+                if (acquisitionValue > bestAcquisition)
+                {
+                    bestAcquisition = acquisitionValue;
+                    bestPoint = candidate;
+                }
+            }
+
+            // Local optimization around best point found
+            bestPoint = LocalOptimizeAcquisition(bestPoint, 100);
+
+            return bestPoint;
+        }
+
+        private double[] LocalOptimizeAcquisition(double[] startPoint, int iterations)
+        {
+            var currentPoint = (double[])startPoint.Clone();
+            var currentValue = ExpectedImprovement(currentPoint);
+
+            double stepSize = 0.1;
+
+            for (int iter = 0; iter < iterations; iter++)
+            {
+                var improved = false;
+
+                for (int dim = 0; dim < dimensions; dim++)
+                {
+                    // Try positive step
+                    var testPoint = (double[])currentPoint.Clone();
+                    testPoint[dim] = Math.Min(upperBounds[dim], testPoint[dim] + stepSize * (upperBounds[dim] - lowerBounds[dim]));
+                    var testValue = ExpectedImprovement(testPoint);
+
+                    if (testValue > currentValue)
+                    {
+                        currentPoint = testPoint;
+                        currentValue = testValue;
+                        improved = true;
+                        continue;
+                    }
+
+                    // Try negative step
+                    testPoint = (double[])currentPoint.Clone();
+                    testPoint[dim] = Math.Max(lowerBounds[dim], testPoint[dim] - stepSize * (upperBounds[dim] - lowerBounds[dim]));
+                    testValue = ExpectedImprovement(testPoint);
+
+                    if (testValue > currentValue)
+                    {
+                        currentPoint = testPoint;
+                        currentValue = testValue;
+                        improved = true;
+                    }
+                }
+
+                if (!improved)
+                    stepSize *= 0.9; // Reduce step size if no improvement
+
+                if (stepSize < 1e-6)
+                    break;
+            }
+
+            return currentPoint;
+        }
+
+        private double ExpectedImprovement(double[] point, double xi = 0.1) // Increased xi
+        {
+            if (evaluatedPoints.Count == 0)
+                return 1.0;
+
+            try
+            {
+                var (mean, variance) = gp.Predict(point);
+                var sigma = Math.Sqrt(Math.Max(variance, 1e-10)); // Ensure positive variance
+
+                if (sigma < 1e-6)
+                    return 1e-6; // Small positive value instead of 0
+
+                var bestValue = evaluatedValues.Min(); // Assuming minimization
+                var improvement = bestValue - mean - xi;
+                var z = improvement / sigma;
+
+                // Clamp z to reasonable bounds to avoid numerical issues
+                z = Math.Max(-10, Math.Min(10, z));
+
+                var phi = NormalCDF(z);
+                var phiDensity = NormalPDF(z);
+
+                var ei = improvement * phi + sigma * phiDensity;
+                return Math.Max(ei, 1e-10); // Ensure positive EI
+            }
+            catch (Exception)
+            {
+                return random.NextDouble(); // Random exploration if prediction fails
+            }
+        }
+
+        private static double NormalCDF(double x)
+        {
+            // Approximation of normal CDF using error function
+            return 0.5 * (1 + Erf(x / Math.Sqrt(2)));
+        }
+
+        private static double NormalPDF(double x)
+        {
+            return Math.Exp(-0.5 * x * x) / Math.Sqrt(2 * Math.PI);
+        }
+
+        private static double Erf(double x)
+        {
+            // Approximation of error function
+            const double a1 = 0.254829592;
+            const double a2 = -0.284496736;
+            const double a3 = 1.421413741;
+            const double a4 = -1.453152027;
+            const double a5 = 1.061405429;
+            const double p = 0.3275911;
+
+            int sign = x < 0 ? -1 : 1;
+            x = Math.Abs(x);
+
+            double t = 1.0 / (1.0 + p * x);
+            double y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.Exp(-x * x);
+
+            return sign * y;
+        }
+
+        private OptimizedHyperparameters VectorToHyperparameters(double[] vector)
+        {
+            return new OptimizedHyperparameters
+            {
+                LearningRate = vector[0],
+                MaxDepth = (int)Math.Round(vector[1]),
+                NumTrees = (int)Math.Round(vector[2]),
+                Subsample = vector[3],
+                ColsampleBytree = vector[4],
+                MinChildWeight = vector[5],
+                RegAlpha = vector[6],
+                RegLambda = vector[7]
+            };
+        }
+    }
+
+    public static class ProperBayesianOptimizationExtensions
+    {
+        public static OptimizedHyperparameters RunProperBayesianOptimization(
+            this ImprovedDemandForecaster forecaster,
+            List<EnhancedXgBoostInput> trainData,
+            List<EnhancedXgBoostInput> validationData,
+            int iterations = 50)
+        {
+            Console.WriteLine("Using Proper Bayesian Optimization with Gaussian Process");
+
+            // FIXED: Better bounds for hyperparameters
+            var lowerBounds = new double[] { 0.01, 3, 50, 0.5, 0.5, 1, 0, 0.1 };
+            var upperBounds = new double[] { 0.5, 15, 1000, 1.0, 1.0, 10, 1.0, 10.0 };
+
+            // FIXED: Better GP hyperparameters
+            var bayesOpt = new ProperBayesianOptimization(lowerBounds, upperBounds);
+
+            // Pre-allocate arrays for validation
+            var validationActualArray = new float[validationData.Count];
+            for (int i = 0; i < validationData.Count; i++)
+            {
+                validationActualArray[i] = validationData[i].Demand;
+            }
+
+            // Define objective function with better error handling
+            double ObjectiveFunction(OptimizedHyperparameters hyperparams)
+            {
+                try
+                {
+                    var model = CreateXgBoostModel(trainData, hyperparams);
+                    var predictions = PredictWithXgBoostModel(model, validationData);
+
+                    if (predictions.Count != validationData.Count)
+                    {
+                        Console.WriteLine($"Warning: Prediction count mismatch");
+                        return double.MaxValue;
+                    }
+
+                    var predictionsSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(predictions);
+                    var validationActualSpan = validationActualArray.AsSpan();
+
+                    var smape = CalculateSMAPEStatic(predictionsSpan, validationActualSpan);
+
+                    // Add penalty for extreme hyperparameters
+                    double penalty = 0;
+                    if (hyperparams.LearningRate > 0.3) penalty += 5;
+                    if (hyperparams.MaxDepth > 12) penalty += 10;
+                    if (hyperparams.NumTrees > 800) penalty += 5;
+
+                    return smape + penalty;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in objective function: {ex.Message}");
+                    return 1000.0; // High penalty instead of MaxValue
+                }
+            }
+
+            // FIXED: Better initialization ratio
+            int randomInitPoints = Math.Max(10, iterations / 5);
+
+            return bayesOpt.OptimizeHyperparameters(ObjectiveFunction, iterations, randomInitPoints);
+        }
+        // Keep the existing helper methods
+        private static XGBRegressor CreateXgBoostModel(List<EnhancedXgBoostInput> trainData, OptimizedHyperparameters hyperparams)
+        {
+            float[][] dataTrain = trainData.Select(d => new float[]
+            {
+                d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
+                d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
+                d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime,
+                d.ManufacturingLeadTime, d.ProphetForecast, d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
+                d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
+            }).ToArray();
+
+            float[] labelsTrain = trainData.Select(d => d.Demand).ToArray();
+
+            var regressor = new XGBRegressor(
+                learningRate: (float)hyperparams.LearningRate,
+                maxDepth: hyperparams.MaxDepth,
+                nEstimators: hyperparams.NumTrees,
+                subsample: (float)hyperparams.Subsample,
+                colSampleByTree: (float)hyperparams.ColsampleBytree,
+                minChildWeight: (int)hyperparams.MinChildWeight,
+                regAlpha: (float)hyperparams.RegAlpha,
+                regLambda: (float)hyperparams.RegLambda
+            );
+
+            regressor.Fit(dataTrain, labelsTrain);
+            return regressor;
+        }
+
+        private static List<float> PredictWithXgBoostModel(XGBRegressor regressor, List<EnhancedXgBoostInput> inputs)
+        {
+            float[][] data = inputs.Select(d => new float[]
+            {
+                d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
+                d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
+                d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime,
+                d.ManufacturingLeadTime, d.ProphetForecast, d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
+                d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
+            }).ToArray();
+
+            float[] predictions = regressor.Predict(data);
+            return predictions.Select(p => Math.Max(0, p)).ToList();
+        }
+
+        private static double CalculateSMAPEStatic(ReadOnlySpan<float> predictions, ReadOnlySpan<float> actual)
+        {
+            if (predictions.Length != actual.Length)
+                throw new ArgumentException("Predictions and actual values must have the same length");
+
+            double sum = 0;
+            for (int i = 0; i < predictions.Length; i++)
+            {
+                float a = actual[i];
+                float p = predictions[i];
+                sum += 2 * Math.Abs(a - p) / (Math.Abs(a) + Math.Abs(p) + 1e-10);
+            }
+            return (sum / predictions.Length) * 100;
+        }
+    }
+
 
     public class ImprovedDemandForecaster
     {
@@ -322,7 +989,7 @@ namespace MLINTERNSHIP
                 return CreateFallbackForecast(productId, processedData, horizon);
             }
 
-            var optimalParams = RunEnhancedBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 50);
+            var optimalParams = this.RunProperBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 50);
             var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
 
             var xgBoostValidationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
@@ -774,58 +1441,6 @@ namespace MLINTERNSHIP
             var sum = values.Sum(v => Math.Pow(v - avg, 2));
             return Math.Sqrt(sum / values.Count());
         }
-        private OptimizedHyperparameters RunEnhancedBayesianOptimization(List<EnhancedXgBoostInput> trainData, List<EnhancedXgBoostInput> validationData, int iterations)
-        {
-            var bestParams = new OptimizedHyperparameters();
-            var bestError = double.MaxValue;
-
-            // Pre-allocate arrays for actual values to avoid repeated allocations
-            var validationActualArray = new float[validationData.Count];
-            for (int i = 0; i < validationData.Count; i++)
-            {
-                validationActualArray[i] = validationData[i].Demand;
-            }
-            var validationActualSpan = validationActualArray.AsSpan();
-
-            for (int i = 0; i < iterations; i++)
-            {
-                var candidateParams = new OptimizedHyperparameters
-                {
-                    LearningRate = 0.01 + random.NextDouble() * 0.29,
-                    MaxDepth = random.Next(3, 11),
-                    NumTrees = random.Next(50, 501),
-                    Subsample = 0.6 + random.NextDouble() * 0.4,
-                    ColsampleBytree = 0.6 + random.NextDouble() * 0.4,
-                    MinChildWeight = random.Next(1, 6),
-                    RegAlpha = random.NextDouble() * 0.1,
-                    RegLambda = random.NextDouble() * 2
-                };
-
-                try
-                {
-                    var model = TrainXgBoost(trainData, candidateParams);
-                    var predictions = PredictWithXgBoost(model, validationData);
-
-                    // Use span for SMAPE calculation
-                    var predictionsSpan = CollectionsMarshal.AsSpan(predictions);
-                    var error = CalculateSMAPE(predictionsSpan, validationActualSpan);
-
-                    if (error < bestError)
-                    {
-                        bestError = error;
-                        bestParams = candidateParams;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Optimization iteration {i} failed: {ex.Message}");
-                    continue;
-                }
-            }
-
-            Console.WriteLine($"Best hyperparameters found with SMAPE: {bestError:F4}");
-            return bestParams;
-        }
         private XGBRegressor TrainXgBoost(List<EnhancedXgBoostInput> trainData, OptimizedHyperparameters hyperparams)
         {
             float[][] dataTrain = trainData.Select(d => new float[]
@@ -1101,7 +1716,7 @@ namespace MLINTERNSHIP
         }
         private ForecastResult CreateFallbackForecast(string productId, List<DemandData> data, int horizon)
         {
-          
+
             var transformationInfo = data.FirstOrDefault()?.TransformationInfo ?? new TransformationInfo();
 
             var forecasts = GenerateExponentialSmoothingForecast(data, horizon);
@@ -1152,7 +1767,7 @@ namespace MLINTERNSHIP
 
             try
             {
-                
+
                 List<SupplyChainData> supplyChainData;
                 using (var stream = new FileStream(csvPath, FileMode.Open, FileAccess.Read))
                 {
