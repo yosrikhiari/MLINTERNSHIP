@@ -5,7 +5,7 @@
 	var horizon = ViewBag.Horizon ?? 7;
 	var horizonDisplay = ViewBag.HorizonDisplay as string ?? $"{horizon} days";
 	var recordCount = ViewBag.RecordCount ?? 0;
-	var forecastUnit = ViewBag.ForecastUnit as string ?? "Days";
+	var forecastUnit = (ViewBag.ForecastUnit?.ToString()) ?? "Days";
 	var forecastQuantity = ViewBag.ForecastQuantity ?? 7;
 }
 
@@ -132,38 +132,65 @@
                     var forecastQuantity = @forecastQuantity;
 
                     // Enhanced forecast data structure
-                    var forecastData = [
+                                     var forecastData = [
                     @foreach (var result in Model)
                     {
                         <text>
+                                {
+                                    productId: "@result.ProductId",
+                                    selectedModel: "@result.SelectedModel",
+                                    predictions: @Html.Raw(Json.Serialize(result.Predictions)),
+                                    confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
+                                    prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
+                                    xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
+                                    prophetSMAPE: @result.ProphetSMAPE,
+                                    xgBoostSMAPE: @result.XgBoostSMAPE,
+                                    selectedModelSMAPE: @(result.SelectedModel == "Prophet" ? result.ProphetSMAPE : result.XgBoostSMAPE),
+                            @if (result.AggregatedPredictions != null)
                             {
-                                productId: "@result.ProductId",
-                                selectedModel: "@result.SelectedModel",
-                                predictions: @Html.Raw(Json.Serialize(result.Predictions)),
-                                confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
-                                prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
-                                xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
-                                prophetSMAPE: @result.ProphetSMAPE,
-                                xgBoostSMAPE: @result.XgBoostSMAPE,
-                                selectedModelSMAPE: @(result.SelectedModel == "Prophet" ? result.ProphetSMAPE : result.XgBoostSMAPE),
-                                // Enhanced with aggregated data
-                                aggregatedPredictions: @Html.Raw(Json.Serialize(result.AggregatedPredictions)),
-                                aggregatedConfidenceIntervals: @Html.Raw(Json.Serialize(result.AggregatedConfidenceIntervals)),
-                                aggregatedLabels: @Html.Raw(Json.Serialize(result.AggregatedLabels)),
-                                request: {
-                                    unit: '@result.Request.Unit',
-                                    quantity: @result.Request.Quantity,
-                                    displayText: '@result.Request.GetDisplayText()'
+                                <text>aggregatedPredictions: @Html.Raw(Json.Serialize(result.AggregatedPredictions)),</text>
+                            }
+                            else
+                            {
+                                <text>aggregatedPredictions: null,</text>
+                            }
+                            @if (result.AggregatedConfidenceIntervals != null)
+                            {
+                                <text>aggregatedConfidenceIntervals: @Html.Raw(Json.Serialize(result.AggregatedConfidenceIntervals)),</text>
+                            }
+                            else
+                            {
+                                <text>aggregatedConfidenceIntervals: null,</text>
+                            }
+                            @if (result.AggregatedLabels != null)
+                            {
+                                <text>aggregatedLabels: @Html.Raw(Json.Serialize(result.AggregatedLabels)),</text>
+                            }
+                            else
+                            {
+                                <text>aggregatedLabels: null,</text>
+                            }
+                                    request: {
+                                        unit: '@(forecastUnit ?? "Days")',
+                                        quantity: @(result.Request?.Quantity ?? 7),
+                                        displayText: '@(result.Request?.GetDisplayText() ?? "7 days")'
+                                    },
+                            @if (result.ForecastDates != null)
+                            {
+                                <text>forecastDates: @Html.Raw(Json.Serialize(result.ForecastDates.Select(d => d.ToString("yyyy-MM-dd")))),</text>
+                            }
+                            else
+                            {
+                                <text>forecastDates: [],</text>
+                            }
+                                    metrics: {
+                                        mape: @(result.Metrics?.MAPE ?? 0),
+                                        rmse: @(result.Metrics?.RMSE ?? 0),
+                                        mae: @(result.Metrics?.MAE ?? 0),
+                                        r2: @(result.Metrics?.R2 ?? 0),
+                                        smape: @(result.Metrics?.SMAPE ?? 0)
+                                    }
                                 },
-                                forecastDates: @Html.Raw(Json.Serialize(result.ForecastDates.Select(d => d.ToString("yyyy-MM-dd")))),
-                                metrics: {
-                                    mape: @result.Metrics.MAPE,
-                                    rmse: @result.Metrics.RMSE,
-                                    mae: @result.Metrics.MAE,
-                                    r2: @result.Metrics.R2,
-                                    smape: @result.Metrics.SMAPE
-                                }
-                            },
                         </text>
                     }
                     ];
@@ -252,12 +279,23 @@
 
                     // Update the forecast horizon display
                     $(document).ready(function() {
-                        document.getElementById('forecastHorizon').textContent = forecastQuantity + ' ' + forecastUnit.toLowerCase();
-                        console.log('Initializing dashboard with', forecastData.length, 'products for', horizonDisplay);
-                        updateSummaryCards();
-                        populateTables();
-                        createCharts();
-                        initializeDataTables();
+                        // Ensure variables are defined
+                        if (typeof forecastQuantity !== 'undefined' && typeof forecastUnit !== 'undefined') {
+                            var horizonElement = document.getElementById('forecastHorizon');
+                            if (horizonElement) {
+                                horizonElement.textContent = forecastQuantity + ' ' + forecastUnit.toLowerCase();
+                            }
+                        }
+
+                        if (typeof forecastData !== 'undefined' && forecastData.length > 0) {
+                            console.log('Initializing dashboard with', forecastData.length, 'products');
+                            updateSummaryCards();
+                            populateTables();
+                            createCharts();
+                            initializeDataTables();
+                        } else {
+                            console.error('No forecast data available');
+                        }
                     });
                 </script>
                 <div class="col-md-3">
@@ -419,6 +457,9 @@
 
         <script>
             var horizon = @horizon;
+            var horizonDisplay = '@Html.Raw(horizonDisplay)';
+            var forecastUnit = '@forecastUnit';
+            var forecastQuantity = @forecastQuantity;
             var forecastData = [
             @foreach (var result in Model)
             {
@@ -477,8 +518,19 @@
                 populateDetailTable();
             }
 
-                      function populateSummaryTable() {
+            function populateSummaryTable() {
                 const tbody = document.getElementById('summaryTableBody');
+                        if (!tbody) {
+                console.error('Summary table body not found');
+                return;
+            }
+
+            if (!forecastData || forecastData.length === 0) {
+                console.error('No forecast data available');
+                tbody.innerHTML = '<tr><td colspan="7">No data available</td></tr>';
+                return;
+
+            }
                 tbody.innerHTML = '';
 
                 forecastData.forEach(item => {
@@ -503,7 +555,7 @@
                                 <small>
                                     MAPE: ${item.metrics.mape.toFixed(2)}%<br>
                                     R²: ${item.metrics.r2.toFixed(3)}<br>
-                                    Period: ${item.request.displayText}
+                      Period: ${item.request && item.request.displayText ? item.request.displayText : '7 days'}
                                 </small>
                             </td>
                             <td>
@@ -515,6 +567,14 @@
                     `;
                     tbody.innerHTML += row;
                 });
+                forecastData.forEach(item => {
+                if (!item.request) {
+                    console.log('Item with missing request:', item);
+                }
+                if (!item.metrics) {
+                    console.log('Item with missing metrics:', item);
+                }
+            });
             }
 
             function populateDetailTable() {
