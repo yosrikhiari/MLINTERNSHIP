@@ -19,72 +19,69 @@ namespace MLINTERNSHIP
     {
         [Name("Date")]
         public DateTime Date { get; set; }
+
         [Name("Product type")]
         public string ProductType { get; set; } = string.Empty;
+
         [Name("SKU")]
         public string SKU { get; set; } = string.Empty;
+
         [Name("Price")]
         public double Price { get; set; }
+
         [Name("Availability")]
         public int Availability { get; set; }
+
         [Name("Number of products sold")]
         public int NumberOfProductsSold { get; set; }
+
         [Name("Revenue generated")]
         public double RevenueGenerated { get; set; }
+
         [Name("Customer demographics")]
         public string CustomerDemographics { get; set; } = string.Empty;
+
         [Name("Stock levels")]
         public int StockLevels { get; set; }
-        [Name("Order quantities")]
-        public int OrderQuantities { get; set; }
-        [Name("Shipping times")]
-        public int ShippingTimes { get; set; }
-        [Name("Shipping carriers")]
-        public string ShippingCarriers { get; set; } = string.Empty;
-        [Name("Shipping costs")]
-        public double ShippingCosts { get; set; }
-        [Name("Supplier name")]
-        public string SupplierName { get; set; } = string.Empty;
-        [Name("Location")]
-        public string Location { get; set; } = string.Empty;
+
         [Name("Procurement lead time")]
         public int ProcurementLeadTime { get; set; }
-        [Name("Production volumes")]
-        public int ProductionVolumes { get; set; }
+
+        [Name("Shipping times")]
+        public int ShippingTimes { get; set; }
+
+        [Name("Shipping carriers")]
+        public string ShippingCarriers { get; set; } = string.Empty;
+
+        [Name("Shipping costs")]
+        public double ShippingCosts { get; set; }
+
+        [Name("Supplier name")]
+        public string SupplierName { get; set; } = string.Empty;
+
+        [Name("Location")]
+        public string Location { get; set; } = string.Empty;
+
         [Name("Manufacturing lead time")]
         public int ManufacturingLeadTime { get; set; }
+
         [Name("Manufacturing costs")]
         public double ManufacturingCosts { get; set; }
-        [Name("Inspection results")]
-        public string InspectionResults { get; set; } = string.Empty;
-        [Name("Defect rates")]
-        public double DefectRates { get; set; }
-        [Name("Transportation modes")]
-        public string TransportationModes { get; set; } = string.Empty;
-        [Name("Routes")]
-        public string Routes { get; set; } = string.Empty;
-        [Name("Costs")]
-        public double Costs { get; set; }
+
         [Name("is_weekend")]
         public int IsWeekend { get; set; }
+
         [Name("day_of_week")]
         public int DayOfWeek { get; set; }
+
         [Name("month")]
         public int Month { get; set; }
+
         [Name("quarter")]
         public int Quarter { get; set; }
+
         [Name("year")]
         public int Year { get; set; }
-        [Name("is_holiday")]
-        public int IsHoliday { get; set; }
-        [Name("holiday_name")]
-        public string HolidayName { get; set; } = string.Empty;
-        [Name("is_event")]
-        public int IsEvent { get; set; }
-        [Name("event_name")]
-        public string EventName { get; set; } = string.Empty;
-        [Name("seasonal_multiplier")]
-        public float SeasonalMultiplier { get; set; }
     }
 
     public class DemandData
@@ -112,6 +109,7 @@ namespace MLINTERNSHIP
         public int IsEvent { get; set; }
         public string EventName { get; set; } = string.Empty;
         public float SeasonalMultiplier { get; set; }
+        public float ProphetSeasonalSpike { get; set; }
 
 
         public TransformationInfo? TransformationInfo { get; set; }
@@ -147,7 +145,7 @@ namespace MLINTERNSHIP
         public float StockRatio { get; set; }
         public float ProcurementLeadTime { get; set; }
         public float ManufacturingLeadTime { get; set; }
-        public float ProphetForecast { get; set; }
+        public float ProphetForecast { get; set; } 
         public float IsWeekend { get; set; }
         public float IsMonthEnd { get; set; }
         public float IsQuarterEnd { get; set; }
@@ -185,14 +183,273 @@ namespace MLINTERNSHIP
     {
         public string ProductId { get; set; } = string.Empty;
         public List<float> Predictions { get; set; } = new();
-        public List<float> ProphetPredictions { get; set; } = new();
+        public List<float> ProphetPredictions { get; set; } = new(); // ADD THIS LINE
         public List<float> XgBoostPredictions { get; set; } = new();
         public string SelectedModel { get; set; } = string.Empty;
         public EvaluationMetrics Metrics { get; set; } = new();
         public OptimizedHyperparameters? OptimalHyperparameters { get; set; }
         public List<float> ConfidenceIntervals { get; set; } = new();
-        public double ProphetSMAPE { get; set; }
         public double XgBoostSMAPE { get; set; }
+        public double ProphetSMAPE { get; set; } // ADD THIS LINE TOO
+    }
+    public class EnhancedForecastResult : ForecastResult
+    {
+        public ForecastRequest Request { get; set; } = new();
+        public List<DateTime> ForecastDates { get; set; } = new();
+        public List<(DateTime Date, float Value, float ConfidenceInterval)> DetailedForecasts { get; set; } = new();
+        public List<float> AggregatedPredictions { get; set; } = new();
+        public List<float> AggregatedConfidenceIntervals { get; set; } = new();
+        public List<string> AggregatedLabels { get; set; } = new();
+    }
+    public enum ForecastUnit
+    {
+        Days = 1,
+        Weeks = 7,
+        Months = 30 // Approximate, will be calculated more precisely
+    }
+
+    public class ForecastRequest
+    {
+        public ForecastUnit Unit { get; set; } = ForecastUnit.Days;
+        public int Quantity { get; set; } = 7;
+        public int HorizonInDays => CalculateHorizonInDays();
+
+        private int CalculateHorizonInDays()
+        {
+            return Unit switch
+            {
+                ForecastUnit.Days => Quantity,
+                ForecastUnit.Weeks => Quantity * 7,
+                ForecastUnit.Months => CalculateMonthsInDays(),
+                _ => Quantity
+            };
+        }
+
+        private int CalculateMonthsInDays()
+        {
+            // More precise month calculation
+            var startDate = DateTime.Now;
+            var endDate = startDate.AddMonths(Quantity);
+            return (int)(endDate - startDate).TotalDays;
+        }
+
+        public string GetDisplayText()
+        {
+            return Unit switch
+            {
+                ForecastUnit.Days => $"{Quantity} day{(Quantity > 1 ? "s" : "")}",
+                ForecastUnit.Weeks => $"{Quantity} week{(Quantity > 1 ? "s" : "")} ({HorizonInDays} days)",
+                ForecastUnit.Months => $"{Quantity} month{(Quantity > 1 ? "s" : "")} ({HorizonInDays} days)",
+                _ => $"{Quantity} periods"
+            };
+        }
+    }
+
+    // Update ImprovedDemandForecaster class with new methods
+    public partial class ImprovedDemandForecaster
+    {
+        public List<EnhancedForecastResult> ForecastAllProductsWithTimeUnits(
+            List<SupplyChainData> supplyChainData,
+            ForecastRequest request)
+        {
+            try
+            {
+                var groupedData = supplyChainData.GroupBy(d => d.SKU);
+                var results = new ConcurrentBag<EnhancedForecastResult>();
+
+                // Use the existing ForecastAllProducts method but with enhanced results
+                var baseResults = ForecastAllProducts(supplyChainData, request.HorizonInDays);
+
+                Parallel.ForEach(baseResults, (baseResult) =>
+                {
+                    var enhancedResult = ConvertToEnhancedResult(baseResult, request, supplyChainData);
+                    results.Add(enhancedResult);
+                });
+
+                return results.ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing data with time units: {ex.Message}");
+                throw;
+            }
+        }
+
+        private EnhancedForecastResult ConvertToEnhancedResult(
+            ForecastResult baseResult,
+            ForecastRequest request,
+            List<SupplyChainData> supplyChainData)
+        {
+            var productData = supplyChainData
+                .Where(d => d.SKU == baseResult.ProductId)
+                .OrderBy(d => d.Date)
+                .ToList();
+
+            var lastDate = productData.Last().Date;
+
+            var enhancedResult = new EnhancedForecastResult
+            {
+                ProductId = baseResult.ProductId,
+                Predictions = baseResult.Predictions,
+                ProphetPredictions = baseResult.ProphetPredictions,
+                XgBoostPredictions = baseResult.XgBoostPredictions,
+                SelectedModel = baseResult.SelectedModel,
+                Metrics = baseResult.Metrics,
+                OptimalHyperparameters = baseResult.OptimalHyperparameters,
+                ConfidenceIntervals = baseResult.ConfidenceIntervals,
+                XgBoostSMAPE = baseResult.XgBoostSMAPE,
+                ProphetSMAPE = baseResult.ProphetSMAPE,
+                Request = request
+            };
+
+            // Generate forecast dates
+            for (int i = 1; i <= request.HorizonInDays; i++)
+            {
+                enhancedResult.ForecastDates.Add(lastDate.AddDays(i));
+            }
+
+            // Create detailed forecasts
+            for (int i = 0; i < baseResult.Predictions.Count; i++)
+            {
+                enhancedResult.DetailedForecasts.Add((
+                    enhancedResult.ForecastDates[i],
+                    baseResult.Predictions[i],
+                    baseResult.ConfidenceIntervals[i]
+                ));
+            }
+
+            // Aggregate predictions based on time unit
+            AggregateForecasts(enhancedResult, request);
+
+            return enhancedResult;
+        }
+
+        private void AggregateForecasts(EnhancedForecastResult result, ForecastRequest request)
+        {
+            result.AggregatedPredictions.Clear();
+            result.AggregatedConfidenceIntervals.Clear();
+            result.AggregatedLabels.Clear();
+
+            switch (request.Unit)
+            {
+                case ForecastUnit.Days:
+                    // For days, use daily predictions as-is
+                    result.AggregatedPredictions = result.Predictions.ToList();
+                    result.AggregatedConfidenceIntervals = result.ConfidenceIntervals.ToList();
+                    for (int i = 0; i < request.Quantity; i++)
+                    {
+                        result.AggregatedLabels.Add($"Day {i + 1}");
+                    }
+                    break;
+
+                case ForecastUnit.Weeks:
+                    AggregateByWeeks(result, request);
+                    break;
+
+                case ForecastUnit.Months:
+                    AggregateByMonths(result, request);
+                    break;
+            }
+        }
+
+        private void AggregateByWeeks(EnhancedForecastResult result, ForecastRequest request)
+        {
+            for (int week = 0; week < request.Quantity; week++)
+            {
+                int startIndex = week * 7;
+                int endIndex = Math.Min(startIndex + 7, result.Predictions.Count);
+
+                if (startIndex < result.Predictions.Count)
+                {
+                    var weekPredictions = result.Predictions.Skip(startIndex).Take(endIndex - startIndex);
+                    var weekConfidence = result.ConfidenceIntervals.Skip(startIndex).Take(endIndex - startIndex);
+
+                    // Sum for total demand per week
+                    result.AggregatedPredictions.Add(weekPredictions.Sum());
+                    // Average confidence interval
+                    result.AggregatedConfidenceIntervals.Add(weekConfidence.Average());
+
+                    var startDate = result.ForecastDates[startIndex];
+                    result.AggregatedLabels.Add($"Week {week + 1} ({startDate:MMM dd})");
+                }
+            }
+        }
+
+        private void AggregateByMonths(EnhancedForecastResult result, ForecastRequest request)
+        {
+            var currentDate = result.ForecastDates.First();
+            var currentMonth = currentDate.Month;
+            var currentYear = currentDate.Year;
+
+            var monthlyPredictions = new List<float>();
+            var monthlyConfidence = new List<float>();
+            int monthIndex = 0;
+
+            for (int i = 0; i < result.Predictions.Count; i++)
+            {
+                var forecastDate = result.ForecastDates[i];
+
+                // Check if we've moved to a new month
+                if (forecastDate.Month != currentMonth || forecastDate.Year != currentYear)
+                {
+                    // Aggregate current month
+                    if (monthlyPredictions.Any())
+                    {
+                        result.AggregatedPredictions.Add(monthlyPredictions.Sum());
+                        result.AggregatedConfidenceIntervals.Add(monthlyConfidence.Average());
+
+                        var monthName = new DateTime(currentYear, currentMonth, 1).ToString("MMM yyyy");
+                        result.AggregatedLabels.Add($"Month {monthIndex + 1} ({monthName})");
+
+                        monthlyPredictions.Clear();
+                        monthlyConfidence.Clear();
+                        monthIndex++;
+                    }
+
+                    currentMonth = forecastDate.Month;
+                    currentYear = forecastDate.Year;
+                }
+
+                monthlyPredictions.Add(result.Predictions[i]);
+                monthlyConfidence.Add(result.ConfidenceIntervals[i]);
+            }
+
+            // Don't forget the last month
+            if (monthlyPredictions.Any() && monthIndex < request.Quantity)
+            {
+                result.AggregatedPredictions.Add(monthlyPredictions.Sum());
+                result.AggregatedConfidenceIntervals.Add(monthlyConfidence.Average());
+
+                var monthName = new DateTime(currentYear, currentMonth, 1).ToString("MMM yyyy");
+                result.AggregatedLabels.Add($"Month {monthIndex + 1} ({monthName})");
+            }
+        }
+
+        // Validation method for forecast requests
+        public static (bool IsValid, string ErrorMessage) ValidateForecastRequest(ForecastRequest request)
+        {
+            if (request.Quantity <= 0)
+                return (false, "Quantity must be greater than 0");
+
+            if (request.Quantity > GetMaxQuantityForUnit(request.Unit))
+                return (false, $"Maximum {GetMaxQuantityForUnit(request.Unit)} {request.Unit.ToString().ToLower()} allowed");
+
+            if (request.HorizonInDays > 365)
+                return (false, "Forecast horizon cannot exceed 365 days");
+
+            return (true, string.Empty);
+        }
+
+        private static int GetMaxQuantityForUnit(ForecastUnit unit)
+        {
+            return unit switch
+            {
+                ForecastUnit.Days => 90,    
+                ForecastUnit.Weeks => 52,     
+                ForecastUnit.Months => 12,   
+                _ => 30
+            };
+        }
     }
 
     public class Matrix
@@ -859,7 +1116,7 @@ namespace MLINTERNSHIP
     }
 
 
-    public class ImprovedDemandForecaster
+    public partial class ImprovedDemandForecaster
     {
         private readonly MLContext mlContext;
         private readonly Random random;
@@ -897,6 +1154,7 @@ namespace MLINTERNSHIP
                 throw;
             }
         }
+
         public List<ForecastResult> ForecastAllProducts(List<SupplyChainData> supplyChainData, int horizon = 7)
         {
             try
@@ -924,11 +1182,7 @@ namespace MLINTERNSHIP
                             WeekOfYear = GetWeekOfYear(d.Date),
                             IsWeekend = d.IsWeekend,
                             Year = d.Year,
-                            IsHoliday = d.IsHoliday,
-                            HolidayName = d.HolidayName,
-                            IsEvent = d.IsEvent,
-                            EventName = d.EventName,
-                            SeasonalMultiplier = d.SeasonalMultiplier
+                            ProphetSeasonalSpike = 1.0f // Will be filled by Prophet
                         }).ToList();
 
                     if (productData.Count >= 21)
@@ -939,7 +1193,7 @@ namespace MLINTERNSHIP
                     else
                     {
                         var fallbackResult = CreateFallbackForecast(group.Key, productData, horizon);
-                        lock (results) { results.Add(fallbackResult); }
+                        results.Add(fallbackResult);
                     }
                 });
 
@@ -951,8 +1205,6 @@ namespace MLINTERNSHIP
                 throw;
             }
         }
-
-
         /////////////////////For Each Product Processing/////////////////////
         private static int GetWeekOfYear(DateTime date)
         {
@@ -962,26 +1214,197 @@ namespace MLINTERNSHIP
             var calendarWeek = ((date - firstMonday).Days / 7) + 1;
             return Math.Max(1, Math.Min(52, calendarWeek));
         }
+        private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostDataWithProphetSpikes(
+            List<DemandData> fullData, int startIndex, int count)
+        {
+            var xgBoostData = new List<EnhancedXgBoostInput>();
+
+            for (int i = startIndex; i < startIndex + count && i < fullData.Count; i++)
+            {
+                if (i < 21) continue;
+
+                var demand = fullData[i].Demand;
+
+                // Get recent demands as span for efficient calculations
+                var recentDemandsArray = new float[21];
+                for (int j = 0; j < 21; j++)
+                {
+                    recentDemandsArray[j] = fullData[i - 21 + j].Demand;
+                }
+                var recentDemandsSpan = recentDemandsArray.AsSpan();
+
+                // Calculate technical features
+                var movingAvg3 = CalculateMovingAverage(recentDemandsSpan, 3);
+                var movingAvg7 = CalculateMovingAverage(recentDemandsSpan, 7);
+                var movingAvg14 = CalculateMovingAverage(recentDemandsSpan, 14);
+                var movingAvg21 = CalculateMovingAverage(recentDemandsSpan, 21);
+
+                var exponentialSmoothing = CalculateExponentialSmoothing(recentDemandsSpan, 0.3f);
+                var volatility = CalculateStandardDeviation(recentDemandsSpan.Slice(14));
+
+                var trend = recentDemandsSpan.Length >= 7 ?
+                    (CalculateMovingAverage(recentDemandsSpan.Slice(18), 3) - CalculateMovingAverage(recentDemandsSpan.Slice(0, 3), 3)) / 18f : 0;
+
+                // KEY: Use Prophet seasonal spike as a feature
+                var prophetSeasonalSpike = fullData[i].ProphetSeasonalSpike;
+
+                var rollingStd7 = CalculateStandardDeviation(recentDemandsSpan.Slice(14));
+                var movingAvgDiff = movingAvg7 - movingAvg21;
+                var lag1Diff = demand - fullData[i - 1].Demand;
+                var lag7Diff = i >= 7 ? demand - fullData[i - 7].Demand : 0;
+
+                xgBoostData.Add(new EnhancedXgBoostInput
+                {
+                    Lag1 = fullData[i - 1].Demand,
+                    Lag2 = fullData[i - 2].Demand,
+                    Lag3 = fullData[i - 3].Demand,
+                    Lag7 = i >= 7 ? fullData[i - 7].Demand : fullData[i - 1].Demand,
+                    MovingAvg3 = movingAvg3,
+                    MovingAvg7 = movingAvg7,
+                    MovingAvg14 = movingAvg14,
+                    MovingAvg21 = movingAvg21,
+                    ExponentialSmoothing = exponentialSmoothing,
+                    Volatility = volatility,
+                    Trend = trend,
+                    DayOfWeek = fullData[i].DayOfWeek,
+                    Month = fullData[i].Month,
+                    Quarter = fullData[i].Quarter,
+                    DayOfYear = fullData[i].DayOfYear,
+                    WeekOfYear = fullData[i].WeekOfYear,
+                    Price = fullData[i].Price,
+                    PriceChange = fullData[i].PriceChange,
+                    StockLevels = fullData[i].StockLevels,
+                    StockRatio = fullData[i].StockRatio,
+                    ProcurementLeadTime = fullData[i].ProcurementLeadTime,
+                    ManufacturingLeadTime = fullData[i].ManufacturingLeadTime,
+                    ProphetForecast = prophetSeasonalSpike, // Changed from ProphetSeasonalSpike
+                    IsWeekend = fullData[i].IsWeekend,
+                    IsMonthEnd = fullData[i].Date.Day >= 28 ? 1 : 0,
+                    IsQuarterEnd = fullData[i].Month % 3 == 0 && fullData[i].Date.Day >= 28 ? 1 : 0,
+                    RollingStd7 = rollingStd7,
+                    MovingAvgDiff = movingAvgDiff,
+                    Lag1Diff = lag1Diff,
+                    Lag7Diff = lag7Diff,
+                    Demand = demand
+                });
+            }
+            return xgBoostData;
+        }
+
+        private static Dictionary<DateTime, float> DetectSeasonalSpikesWithProphet(List<DemandData> data)
+        {
+            try
+            {
+                var historicalData = data.Select(d => new
+                {
+                    ds = d.Date.ToString("yyyy-MM-dd"),
+                    y = d.Demand
+                }).ToList();
+
+                var inputData = new { historical_data = historicalData };
+                var jsonInput = JsonConvert.SerializeObject(inputData);
+
+                var tempFilePath = Path.GetTempFileName();
+                File.WriteAllText(tempFilePath, jsonInput);
+
+                var pythonPath = @"C:\Users\yosri\AppData\Local\Microsoft\WindowsApps\python.exe";
+                var scriptPath = @"C:\Users\yosri\Desktop\projects for me\intership 4éme\MLINTERNSHIP\prophet_seasonal_detector.py";
+
+                using (var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = pythonPath,
+                        Arguments = $"\"{scriptPath}\" \"{tempFilePath}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                })
+                {
+                    process.Start();
+                    if (!process.WaitForExit(30000)) // 30 second timeout
+                    {
+                        process.Kill();
+                        return CreateFallbackSeasonalSpikes(data);
+                    }
+
+                    string output = process.StandardOutput.ReadToEnd();
+                    File.Delete(tempFilePath);
+
+                    if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                    {
+                        var seasonalData = JsonConvert.DeserializeObject<Dictionary<string, float>>(output);
+                        return seasonalData.ToDictionary(
+                            kvp => DateTime.ParseExact(kvp.Key, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                            kvp => kvp.Value
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Prophet seasonal detection failed: {ex.Message}");
+            }
+            return CreateFallbackSeasonalSpikes(data);
+        }
+        private static Dictionary<DateTime, float> CreateFallbackSeasonalSpikes(List<DemandData> data)
+        {
+            var fallbackSpikes = new Dictionary<DateTime, float>();
+
+            foreach (var item in data)
+            {
+                float spike = 1.0f;
+
+                // Weekend effect
+                if (item.Date.DayOfWeek == DayOfWeek.Saturday || item.Date.DayOfWeek == DayOfWeek.Sunday)
+                    spike *= 1.2f;
+
+                // Month-end effect
+                if (item.Date.Day >= 28)
+                    spike *= 1.1f;
+
+                // Holiday season effect (November-December)
+                if (item.Date.Month >= 11)
+                    spike *= 1.3f;
+
+                fallbackSpikes[item.Date] = Math.Max(0.5f, Math.Min(3.0f, spike));
+            }
+
+            return fallbackSpikes;
+        }
         public ForecastResult ForecastDemand(IEnumerable<DemandData> data, string productId, int horizon = 7)
         {
             var productData = data.OrderBy(d => d.Date).ToList();
             if (productData.Count < 21)
                 throw new ArgumentException($"Insufficient data for product {productId}.");
 
+            // Step 1: Get Prophet seasonal spikes for the historical data
+            var prophetSpikes = DetectSeasonalSpikesWithProphet(productData);
+
+            // Step 2: Apply Prophet spikes to the data
+            for (int i = 0; i < productData.Count; i++)
+            {
+                if (prophetSpikes.ContainsKey(productData[i].Date))
+                {
+                    productData[i].ProphetSeasonalSpike = prophetSpikes[productData[i].Date];
+                }
+            }
+
+            // Step 3: Preprocess data with transformation
             var (processedData, transformationInfo) = EnhancedPreprocessDataWithTransformation(productData);
+
+            // Step 4: Split data for training and validation
             var trainRatio = Math.Max(0.7, Math.Min(0.9, 1.0 - (14.0 / processedData.Count)));
             var trainSize = (int)(processedData.Count * trainRatio);
             var validationSize = processedData.Count - trainSize;
 
             Console.WriteLine($"Product {productId}: Training on {trainSize} samples, validating on {validationSize} samples");
 
-            var requiredHorizon = validationSize + horizon;
-            var prophetForecasts = RunProphetForecasting(processedData.Take(trainSize).ToList(), processedData.First().ProductType, requiredHorizon);
-            var prophetValidationForecasts = prophetForecasts.Take(validationSize).ToList();
-            var prophetFutureForecasts = prophetForecasts.Skip(validationSize).Take(horizon).ToList();
-
-            var xgBoostTrainData = PrepareEnhancedXgBoostData(processedData, 21, trainSize - 21);
-            var xgBoostValidationData = PrepareEnhancedXgBoostData(processedData, trainSize, validationSize, prophetValidationForecasts);
+            // Step 5: Prepare XGBoost data with Prophet seasonal features
+            var xgBoostTrainData = PrepareEnhancedXgBoostDataWithProphetSpikes(processedData, 21, trainSize - 21);
+            var xgBoostValidationData = PrepareEnhancedXgBoostDataWithProphetSpikes(processedData, trainSize, validationSize);
 
             if (xgBoostTrainData.Count == 0 || xgBoostValidationData.Count == 0)
             {
@@ -989,54 +1412,34 @@ namespace MLINTERNSHIP
                 return CreateFallbackForecast(productId, processedData, horizon);
             }
 
+            // Step 6: Optimize hyperparameters and train XGBoost
             var optimalParams = this.RunProperBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 50);
             var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
 
-            var xgBoostValidationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
-            var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, prophetFutureForecasts, horizon);
-            var xgBoostFuturePredictions = PredictWithXgBoost(xgBoostModel, xgBoostFutureData);
+            // Step 7: Generate future Prophet seasonal spikes for forecasting
+            var futureSpikes = GenerateFutureProphetSpikes(processedData, horizon);
 
-            // Convert to arrays for span usage
+            // Step 8: Create future features with Prophet seasonal information
+            var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, futureSpikes, horizon);
+
+            // Step 9: Make predictions
+            var validationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
+            var futurePredictions = PredictWithXgBoost(xgBoostModel, xgBoostFutureData);
+
+            // Step 10: Evaluate model performance
             var actualValidationArray = new float[validationSize];
             for (int i = 0; i < validationSize; i++)
             {
                 actualValidationArray[i] = processedData[trainSize + i].Demand;
             }
 
-            // Use spans for SMAPE calculations
-            var prophetValidationSpan = CollectionsMarshal.AsSpan(prophetValidationForecasts);
-            var xgBoostValidationSpan = CollectionsMarshal.AsSpan(xgBoostValidationPredictions);
+            var validationPredictionsSpan = CollectionsMarshal.AsSpan(validationPredictions);
             var actualValidationSpan = actualValidationArray.AsSpan();
+            var xgBoostSMAPE = CalculateSMAPE(validationPredictionsSpan, actualValidationSpan);
 
-            var prophetSMAPE = CalculateSMAPE(prophetValidationSpan, actualValidationSpan);
-            var xgBoostSMAPE = CalculateSMAPE(xgBoostValidationSpan, actualValidationSpan);
+            Console.WriteLine($"XGBoost with Prophet Seasonal Features Performance for {productId}:");
+            Console.WriteLine($"  SMAPE: {xgBoostSMAPE:F4}%");
 
-            Console.WriteLine($"Model Performance Comparison for {productId}:");
-            Console.WriteLine($"  Prophet SMAPE: {prophetSMAPE:F4}%");
-            Console.WriteLine($"  XGBoost SMAPE: {xgBoostSMAPE:F4}%");
-
-            var minSMAPE = Math.Min(prophetSMAPE, xgBoostSMAPE);
-            string selectedModel;
-            List<float> selectedPredictions;
-            List<float> selectedValidationPredictions;
-
-            if (minSMAPE == prophetSMAPE)
-            {
-                selectedModel = "Prophet";
-                selectedPredictions = prophetFutureForecasts;
-                selectedValidationPredictions = prophetValidationForecasts;
-                Console.WriteLine($"  Selected Model: Prophet (SMAPE: {prophetSMAPE:F4}%)");
-            }
-            else
-            {
-                selectedModel = "XGBoost";
-                selectedPredictions = xgBoostFuturePredictions;
-                selectedValidationPredictions = xgBoostValidationPredictions;
-                Console.WriteLine($"  Selected Model: XGBoost (SMAPE: {xgBoostSMAPE:F4}%)");
-            }
-
-            // Prepare data for comprehensive metrics calculation using spans
-            var selectedValidationSpan = CollectionsMarshal.AsSpan(selectedValidationPredictions);
             var trainDataArray = new float[trainSize];
             for (int i = 0; i < trainSize; i++)
             {
@@ -1046,7 +1449,7 @@ namespace MLINTERNSHIP
 
             var metrics = CalculateComprehensiveMetrics(
                 actualValidationSpan,
-                selectedValidationSpan,
+                validationPredictionsSpan,
                 trainDataSpan
             );
 
@@ -1056,24 +1459,58 @@ namespace MLINTERNSHIP
                 return CreateFallbackForecast(productId, productData, horizon);
             }
 
-            var revertedPredictions = InverseTransformation(selectedPredictions, transformationInfo);
-            var revertedProphetPredictions = InverseTransformation(prophetFutureForecasts, transformationInfo);
-            var revertedXgBoostPredictions = InverseTransformation(xgBoostFuturePredictions, transformationInfo);
+            // Step 11: Inverse transform predictions and calculate confidence intervals
+            var revertedPredictions = InverseTransformation(futurePredictions, transformationInfo);
             var revertedConfidenceIntervals = CalculateConfidenceIntervals(revertedPredictions, metrics.RMSE);
 
             return new ForecastResult
             {
                 ProductId = productId,
                 Predictions = revertedPredictions,
-                ProphetPredictions = revertedProphetPredictions,
-                XgBoostPredictions = revertedXgBoostPredictions,
+                XgBoostPredictions = revertedPredictions,
                 Metrics = metrics,
                 OptimalHyperparameters = optimalParams,
                 ConfidenceIntervals = revertedConfidenceIntervals,
-                SelectedModel = selectedModel,
-                ProphetSMAPE = prophetSMAPE,
+                SelectedModel = "XGBoost with Prophet Seasonal Features",
                 XgBoostSMAPE = xgBoostSMAPE
             };
+        }
+        private static List<float> GenerateFutureProphetSpikes(List<DemandData> historicalData, int horizon)
+        {
+            var lastDate = historicalData.Last().Date;
+            var futureSpikes = new List<float>();
+
+            // Simple seasonal pattern fallback based on historical averages
+            var weeklyPattern = new float[7];
+            var monthlyPattern = new float[12];
+
+            // Calculate weekly seasonality
+            for (int dow = 0; dow < 7; dow++)
+            {
+                var dayData = historicalData.Where(d => (int)d.Date.DayOfWeek == dow).ToList();
+                weeklyPattern[dow] = dayData.Any() ? dayData.Average(d => d.ProphetSeasonalSpike) : 1.0f;
+            }
+
+            // Calculate monthly seasonality
+            for (int month = 1; month <= 12; month++)
+            {
+                var monthData = historicalData.Where(d => d.Date.Month == month).ToList();
+                monthlyPattern[month - 1] = monthData.Any() ? monthData.Average(d => d.ProphetSeasonalSpike) : 1.0f;
+            }
+
+            // Generate future seasonal spikes
+            for (int i = 1; i <= horizon; i++)
+            {
+                var futureDate = lastDate.AddDays(i);
+                var weeklySpike = weeklyPattern[(int)futureDate.DayOfWeek];
+                var monthlySpike = monthlyPattern[futureDate.Month - 1];
+
+                // Combine weekly and monthly seasonality
+                var combinedSpike = (weeklySpike + monthlySpike) / 2.0f;
+                futureSpikes.Add(Math.Max(0.5f, Math.Min(3.0f, combinedSpike)));
+            }
+
+            return futureSpikes;
         }
         private static (List<DemandData> processedData, TransformationInfo transformationInfo) EnhancedPreprocessDataWithTransformation(List<DemandData> data)
         {
@@ -1234,98 +1671,6 @@ namespace MLINTERNSHIP
 
 
         /////////////////////Model Training and Prediction/////////////////////
-        private List<float> RunProphetForecasting(List<DemandData> trainData, string productType, int requiredHorizon)
-        {
-            try
-            {
-                var historicalData = trainData.Select(d => new
-                {
-                    ds = d.Date.ToString("yyyy-MM-dd"),
-                    y = d.Demand,
-                    is_weekend = d.IsWeekend,
-                    day_of_week = d.DayOfWeek,
-                    month = d.Month,
-                    quarter = d.Quarter,
-                    year = d.Year,
-                    seasonal_multiplier = d.SeasonalMultiplier
-                }).ToList();
-
-                var inputData = new
-                {
-                    historical_data = historicalData,
-                    product_type = productType,
-                    required_horizon = requiredHorizon
-                };
-                var jsonInput = JsonConvert.SerializeObject(inputData);
-
-                var tempFilePath = Path.GetTempFileName();
-                File.WriteAllText(tempFilePath, jsonInput);
-                Console.WriteLine($"JSON input size: {jsonInput.Length} characters");
-                Console.WriteLine($"Temporary file created at: {tempFilePath}");
-
-                var pythonPath = @"C:\Users\yosri\AppData\Local\Microsoft\WindowsApps\python.exe";
-                var scriptPath = @"C:\Users\yosri\Desktop\projects for me\intership 4éme\MLINTERNSHIP\prophet_forecast.py";
-
-                var processStartInfo = new ProcessStartInfo
-                {
-                    FileName = pythonPath,
-                    Arguments = $"\"{scriptPath}\" \"{tempFilePath}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8
-                };
-
-                using (var process = new Process { StartInfo = processStartInfo })
-                {
-                    process.Start();
-                    var timeout = TimeSpan.FromMinutes(5);
-                    if (!process.WaitForExit((int)timeout.TotalMilliseconds))
-                    {
-                        Console.WriteLine("Python process timed out, killing process");
-                        process.Kill();
-                        File.Delete(tempFilePath);
-                        return GenerateExponentialSmoothingForecast(trainData, requiredHorizon);
-                    }
-
-                    string output = process.StandardOutput.ReadToEnd();
-                    string error = process.StandardError.ReadToEnd();
-                    Console.WriteLine($"Python process exit code: {process.ExitCode}");
-                    Console.WriteLine($"Python stdout: {output}");
-                    Console.WriteLine($"Python stderr: {error}");
-                    File.Delete(tempFilePath);
-
-                    if (process.ExitCode != 0)
-                    {
-                        Console.WriteLine($"Prophet forecasting failed with exit code {process.ExitCode}: {error}");
-                        return GenerateExponentialSmoothingForecast(trainData, requiredHorizon);
-                    }
-
-                    if (string.IsNullOrWhiteSpace(output))
-                    {
-                        Console.WriteLine("Prophet returned empty output");
-                        return GenerateExponentialSmoothingForecast(trainData, requiredHorizon);
-                    }
-
-                    var outputData = JsonConvert.DeserializeObject<Dictionary<string, List<float>>>(output);
-                    if (outputData == null || !outputData.ContainsKey("forecasts"))
-                    {
-                        Console.WriteLine("Invalid output format from Python script");
-                        return GenerateExponentialSmoothingForecast(trainData, requiredHorizon);
-                    }
-
-                    return outputData["forecasts"];
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in RunProphetForecasting: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                return GenerateExponentialSmoothingForecast(trainData, requiredHorizon);
-            }
-        }
         private static List<float> GenerateExponentialSmoothingForecast(List<DemandData> data, int horizon)
         {
             var alpha = 0.3f;
@@ -1348,7 +1693,7 @@ namespace MLINTERNSHIP
             }
             return forecasts;
         }
-        private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostData(List<DemandData> fullData, int startIndex, int count, List<float>? prophetForecasts = null)
+        private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostData(List<DemandData> fullData, int startIndex, int count, List<float> prophetForecasts)
         {
             var xgBoostData = new List<EnhancedXgBoostInput>();
 
@@ -1378,7 +1723,8 @@ namespace MLINTERNSHIP
                 var trend = recentDemandsSpan.Length >= 7 ?
                     (CalculateMovingAverage(recentDemandsSpan.Slice(18), 3) - CalculateMovingAverage(recentDemandsSpan.Slice(0, 3), 3)) / 18f : 0;
 
-                var prophetForecast = (prophetForecasts != null && i - startIndex < prophetForecasts.Count) ?
+                // CHANGE 10: Always use Prophet forecast (it's now required)
+                var prophetForecast = (i - startIndex < prophetForecasts.Count) ?
                     prophetForecasts[i - startIndex] : 0;
 
                 var rollingStd7 = CalculateStandardDeviation(recentDemandsSpan.Slice(14));
@@ -1410,7 +1756,7 @@ namespace MLINTERNSHIP
                     StockRatio = fullData[i].StockRatio,
                     ProcurementLeadTime = fullData[i].ProcurementLeadTime,
                     ManufacturingLeadTime = fullData[i].ManufacturingLeadTime,
-                    ProphetForecast = prophetForecast,
+                    ProphetForecast = prophetForecast, // PROPHET AS FEATURE!
                     IsWeekend = fullData[i].DayOfWeek == 0 || fullData[i].DayOfWeek == 6 ? 1 : 0,
                     IsMonthEnd = fullData[i].Date.Day >= 28 ? 1 : 0,
                     IsQuarterEnd = fullData[i].Month % 3 == 0 && fullData[i].Date.Day >= 28 ? 1 : 0,
@@ -1423,7 +1769,6 @@ namespace MLINTERNSHIP
             }
             return xgBoostData;
         }
-
         private static float CalculateExponentialSmoothing(ReadOnlySpan<float> data, float alpha)
         {
             if (data.Length == 0) return 0;
@@ -1478,7 +1823,7 @@ namespace MLINTERNSHIP
             float[] predictions = regressor.Predict(data);
             return predictions.Select(p => Math.Max(0, p)).ToList();
         }
-        private static List<EnhancedXgBoostInput> CreateEnhancedFutureFeatures(List<DemandData> historicalData, List<float> prophetForecasts, int horizon)
+        private static List<EnhancedXgBoostInput> CreateEnhancedFutureFeatures(List<DemandData> historicalData, List<float> prophetSeasonalSpikes, int horizon)
         {
             var futureFeatures = new List<EnhancedXgBoostInput>();
             var lastDate = historicalData.Last().Date;
@@ -1488,14 +1833,13 @@ namespace MLINTERNSHIP
             {
                 var futureDate = lastDate.AddDays(i + 1);
                 var currentDemands = new List<float>(recentDemands);
-                if (i > 0) currentDemands.AddRange(prophetForecasts.Take(i));
+                if (i > 0) currentDemands.AddRange(prophetSeasonalSpikes.Take(i)); // Changed parameter name
 
                 var movingAvg3 = currentDemands.TakeLast(3).Average();
                 var movingAvg7 = currentDemands.TakeLast(7).Average();
                 var movingAvg14 = currentDemands.TakeLast(14).Average();
                 var movingAvg21 = currentDemands.TakeLast(21).Average();
 
-                // Fix: Convert List<float> to array first, then create span
                 var currentDemandsLast21 = currentDemands.TakeLast(21).ToArray();
                 var exponentialSmoothing = CalculateExponentialSmoothing(currentDemandsLast21.AsSpan(), 0.3f);
 
@@ -1503,8 +1847,8 @@ namespace MLINTERNSHIP
                 var trend = currentDemands.Count >= 7 ? (currentDemands.TakeLast(3).Average() - currentDemands.Take(3).Average()) / 18f : 0;
                 var rollingStd7 = (float)StandardDeviation(currentDemands.TakeLast(7));
                 var movingAvgDiff = movingAvg7 - movingAvg21;
-                var lag1Diff = i > 0 ? prophetForecasts[i - 1] - currentDemands.Last() : currentDemands.Last() - currentDemands[^2];
-                var lag7Diff = i >= 6 ? prophetForecasts[i - 1] - currentDemands[^7] : 0;
+                var lag1Diff = i > 0 ? prophetSeasonalSpikes[i - 1] - currentDemands.Last() : currentDemands.Last() - currentDemands[^2];
+                var lag7Diff = i >= 6 ? prophetSeasonalSpikes[i - 1] - currentDemands[^7] : 0;
 
                 futureFeatures.Add(new EnhancedXgBoostInput
                 {
@@ -1530,7 +1874,7 @@ namespace MLINTERNSHIP
                     StockRatio = historicalData.Last().StockRatio,
                     ProcurementLeadTime = historicalData.Last().ProcurementLeadTime,
                     ManufacturingLeadTime = historicalData.Last().ManufacturingLeadTime,
-                    ProphetForecast = prophetForecasts.ElementAtOrDefault(i),
+                    ProphetForecast = prophetSeasonalSpikes[i], // Changed to ProphetForecast and fixed index
                     IsWeekend = futureDate.DayOfWeek == DayOfWeek.Saturday || futureDate.DayOfWeek == DayOfWeek.Sunday ? 1 : 0,
                     IsMonthEnd = futureDate.Day >= 28 ? 1 : 0,
                     IsQuarterEnd = futureDate.Month % 3 == 0 && futureDate.Day >= 28 ? 1 : 0,
@@ -1543,7 +1887,6 @@ namespace MLINTERNSHIP
             }
             return futureFeatures;
         }
-
 
         /////////////////////Model Evaluation and Selection/////////////////////
         private static double CalculateSMAPE(ReadOnlySpan<float> predictions, ReadOnlySpan<float> actual)

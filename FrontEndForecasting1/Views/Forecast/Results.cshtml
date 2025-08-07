@@ -1,9 +1,12 @@
-﻿@model List<MLINTERNSHIP.ForecastResult>
+﻿@model List<MLINTERNSHIP.EnhancedForecastResult>
 @{
-    ViewData["Title"] = "Forecast Results";
-    var fileName = ViewBag.FileName as string ?? "Unknown";
-    var horizon = ViewBag.Horizon ?? 7;
-    var recordCount = ViewBag.RecordCount ?? 0;
+	ViewData["Title"] = "Forecast Results";
+	var fileName = ViewBag.FileName as string ?? "Unknown";
+	var horizon = ViewBag.Horizon ?? 7;
+	var horizonDisplay = ViewBag.HorizonDisplay as string ?? $"{horizon} days";
+	var recordCount = ViewBag.RecordCount ?? 0;
+	var forecastUnit = ViewBag.ForecastUnit as string ?? "Days";
+	var forecastQuantity = ViewBag.ForecastQuantity ?? 7;
 }
 
 <!DOCTYPE html>
@@ -116,10 +119,147 @@
                         <div class="card-body">
                             <h5 class="card-title"><i class="fas fa-calendar text-info me-2"></i>Horizon</h5>
                             <h3 class="text-info" id="forecastHorizon"></h3>
-                            <small class="text-muted">Days ahead</small>
+                            <small class="text-muted">@horizonDisplay</small>
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    // Update the horizon display in JavaScript
+                    var horizon = @horizon;
+                    var horizonDisplay = '@Html.Raw(horizonDisplay)';
+                    var forecastUnit = '@forecastUnit';
+                    var forecastQuantity = @forecastQuantity;
+
+                    // Enhanced forecast data structure
+                    var forecastData = [
+                    @foreach (var result in Model)
+                    {
+                        <text>
+                            {
+                                productId: "@result.ProductId",
+                                selectedModel: "@result.SelectedModel",
+                                predictions: @Html.Raw(Json.Serialize(result.Predictions)),
+                                confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
+                                prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
+                                xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
+                                prophetSMAPE: @result.ProphetSMAPE,
+                                xgBoostSMAPE: @result.XgBoostSMAPE,
+                                selectedModelSMAPE: @(result.SelectedModel == "Prophet" ? result.ProphetSMAPE : result.XgBoostSMAPE),
+                                // Enhanced with aggregated data
+                                aggregatedPredictions: @Html.Raw(Json.Serialize(result.AggregatedPredictions)),
+                                aggregatedConfidenceIntervals: @Html.Raw(Json.Serialize(result.AggregatedConfidenceIntervals)),
+                                aggregatedLabels: @Html.Raw(Json.Serialize(result.AggregatedLabels)),
+                                request: {
+                                    unit: '@result.Request.Unit',
+                                    quantity: @result.Request.Quantity,
+                                    displayText: '@result.Request.GetDisplayText()'
+                                },
+                                forecastDates: @Html.Raw(Json.Serialize(result.ForecastDates.Select(d => d.ToString("yyyy-MM-dd")))),
+                                metrics: {
+                                    mape: @result.Metrics.MAPE,
+                                    rmse: @result.Metrics.RMSE,
+                                    mae: @result.Metrics.MAE,
+                                    r2: @result.Metrics.R2,
+                                    smape: @result.Metrics.SMAPE
+                                }
+                            },
+                        </text>
+                    }
+                    ];
+
+                    // Update chart creation to handle different time units
+                    function createForecastChart() {
+                        const ctx = document.getElementById('forecastChart').getContext('2d');
+                        if (currentChart) currentChart.destroy();
+
+                        // Enhanced color palette
+                        const colors = [
+                            '#e74c3c', '#3498db', '#f39c12', '#2ecc71', '#9b59b6',
+                            '#1abc9c', '#e67e22', '#34495e', '#f1c40f', '#e91e63'
+                        ];
+
+                        // Use aggregated data if available, otherwise use daily predictions
+                        const datasets = forecastData.map((item, index) => {
+                            const useAggregated = item.aggregatedPredictions && item.aggregatedPredictions.length > 0;
+                            const data = useAggregated ? item.aggregatedPredictions : item.predictions;
+                            const labels = useAggregated ? item.aggregatedLabels :
+                                          Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
+
+                            return {
+                                label: `${item.productId} (${item.selectedModel})`,
+                                data: data,
+                                borderColor: colors[index % colors.length],
+                                backgroundColor: colors[index % colors.length] + '30',
+                                tension: 0.4,
+                                fill: false,
+                                borderWidth: 3,
+                                pointBackgroundColor: colors[index % colors.length],
+                                pointBorderColor: '#ffffff',
+                                pointBorderWidth: 2,
+                                pointRadius: 5
+                            };
+                        });
+
+                        // Dynamic labels based on first item
+                        const chartLabels = forecastData.length > 0 && forecastData[0].aggregatedLabels && forecastData[0].aggregatedLabels.length > 0
+                            ? forecastData[0].aggregatedLabels
+                            : Array.from({length: horizon}, (_, i) => `Day ${i + 1}`);
+
+                        currentChart = new Chart(ctx, {
+                            type: chartType,
+                            data: {
+                                labels: chartLabels,
+                                datasets: datasets
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        title: { display: true, text: 'Forecast Value' }
+                                    },
+                                    x: {
+                                        title: {
+                                            display: true,
+                                            text: `Forecast Horizon (${horizonDisplay})`
+                                        }
+                                    }
+                                },
+                                plugins: {
+                                    legend: { position: 'top' },
+                                    title: {
+                                        display: true,
+                                        text: `Demand Forecast - ${horizonDisplay}`
+                                    },
+                                    tooltip: {
+                                        callbacks: {
+                                            afterLabel: function(context) {
+                                                const product = forecastData[context.datasetIndex];
+                                                const useAggregated = product.aggregatedConfidenceIntervals && product.aggregatedConfidenceIntervals.length > 0;
+                                                const confidence = useAggregated
+                                                    ? product.aggregatedConfidenceIntervals[context.dataIndex]
+                                                    : product.confidenceIntervals[context.dataIndex];
+                                                return `Confidence: ±${confidence.toFixed(2)}`;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    // Update the forecast horizon display
+                    $(document).ready(function() {
+                        document.getElementById('forecastHorizon').textContent = forecastQuantity + ' ' + forecastUnit.toLowerCase();
+                        console.log('Initializing dashboard with', forecastData.length, 'products for', horizonDisplay);
+                        updateSummaryCards();
+                        populateTables();
+                        createCharts();
+                        initializeDataTables();
+                    });
+                </script>
                 <div class="col-md-3">
                     <div class="card metric-card">
                         <div class="card-body">
@@ -337,15 +477,21 @@
                 populateDetailTable();
             }
 
-            function populateSummaryTable() {
+                      function populateSummaryTable() {
                 const tbody = document.getElementById('summaryTableBody');
                 tbody.innerHTML = '';
+
                 forecastData.forEach(item => {
-                    const avgForecast = (item.predictions.reduce((a, b) => a + b, 0) / item.predictions.length).toFixed(2);
-                    const minForecast = Math.min(...item.predictions).toFixed(2);
-                    const maxForecast = Math.max(...item.predictions).toFixed(2);
+                    // Use aggregated data for summary if available
+                    const useAggregated = item.aggregatedPredictions && item.aggregatedPredictions.length > 0;
+                    const predictions = useAggregated ? item.aggregatedPredictions : item.predictions;
+
+                    const avgForecast = (predictions.reduce((a, b) => a + b, 0) / predictions.length).toFixed(2);
+                    const minForecast = Math.min(...predictions).toFixed(2);
+                    const maxForecast = Math.max(...predictions).toFixed(2);
                     const range = `${minForecast} - ${maxForecast}`;
                     const smapeBadge = getPerformanceBadge(item.selectedModelSMAPE);
+
                     const row = `
                         <tr>
                             <td><strong>${item.productId}</strong></td>
@@ -356,7 +502,8 @@
                             <td>
                                 <small>
                                     MAPE: ${item.metrics.mape.toFixed(2)}%<br>
-                                    R²: ${item.metrics.r2.toFixed(3)}
+                                    R²: ${item.metrics.r2.toFixed(3)}<br>
+                                    Period: ${item.request.displayText}
                                 </small>
                             </td>
                             <td>
@@ -373,13 +520,22 @@
             function populateDetailTable() {
                 const tbody = document.getElementById('detailTableBody');
                 tbody.innerHTML = '';
+
                 forecastData.forEach(item => {
-                    item.predictions.forEach((forecast, dayIndex) => {
-                        const confidence = item.confidenceIntervals[dayIndex];
+                    // Use aggregated data if available
+                    const useAggregated = item.aggregatedPredictions && item.aggregatedPredictions.length > 0;
+                    const predictions = useAggregated ? item.aggregatedPredictions : item.predictions;
+                    const confidenceIntervals = useAggregated ? item.aggregatedConfidenceIntervals : item.confidenceIntervals;
+                    const labels = useAggregated ? item.aggregatedLabels : Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
+
+                    predictions.forEach((forecast, index) => {
+                        const confidence = confidenceIntervals[index];
+                        const label = labels[index] || `Period ${index + 1}`;
+
                         const row = `
                             <tr>
                                 <td><strong>${item.productId}</strong></td>
-                                <td>Day ${dayIndex + 1}</td>
+                                <td>${label}</td>
                                 <td class="forecast-value">${forecast.toFixed(2)}</td>
                                 <td class="confidence-interval">±${confidence.toFixed(2)}</td>
                                 <td><span class="badge bg-secondary">${item.selectedModel}</span></td>
@@ -500,11 +656,16 @@
             function showProductDetails(productId) {
                 const product = forecastData.find(item => item.productId === productId);
                 if (!product) return;
+
                 document.getElementById('modalProductId').textContent = productId;
+
+                // Enhanced summary with time unit information
                 const summary = `
                     <div class="row">
                         <div class="col-6"><strong>Selected Model:</strong></div>
                         <div class="col-6">${product.selectedModel}</div>
+                        <div class="col-6"><strong>Forecast Period:</strong></div>
+                        <div class="col-6">${product.request.displayText}</div>
                         <div class="col-6"><strong>Avg Forecast:</strong></div>
                         <div class="col-6">${(product.predictions.reduce((a,b) => a+b, 0) / product.predictions.length).toFixed(2)}</div>
                         <div class="col-6"><strong>Model SMAPE:</strong></div>
@@ -518,12 +679,17 @@
                     </div>
                 `;
                 document.getElementById('productSummary').innerHTML = summary;
+
+                // Populate modal table with appropriate data
                 const modalTbody = document.getElementById('modalTableBody');
                 modalTbody.innerHTML = '';
+
+                // Show daily breakdown regardless of aggregation
                 product.predictions.forEach((forecast, index) => {
+                    const forecastDate = product.forecastDates[index] || '';
                     const row = `
                         <tr>
-                            <td>Day ${index + 1}</td>
+                            <td>Day ${index + 1}${forecastDate ? ` (${forecastDate})` : ''}</td>
                             <td class="forecast-value">${forecast.toFixed(2)}</td>
                             <td class="confidence-interval">±${product.confidenceIntervals[index].toFixed(2)}</td>
                             <td>${product.prophetPredictions[index].toFixed(2)}</td>
@@ -532,12 +698,18 @@
                     `;
                     modalTbody.innerHTML += row;
                 });
+
+                // Create detailed chart for the product
                 const ctx = document.getElementById('productChart').getContext('2d');
                 if (productChart) productChart.destroy();
+
+                // Use daily labels for detailed view
+                const dailyLabels = Array.from({length: product.predictions.length}, (_, i) => `Day ${i + 1}`);
+
                 productChart = new Chart(ctx, {
                     type: 'line',
                     data: {
-                        labels: Array.from({length: horizon}, (_, i) => `Day ${i + 1}`),
+                        labels: dailyLabels,
                         datasets: [
                             {
                                 label: `Selected (${product.selectedModel})`,
@@ -570,17 +742,26 @@
                         maintainAspectRatio: false,
                         plugins: {
                             legend: { position: 'top' },
-                            title: { display: true, text: `${productId} - ${horizon}-Day Forecast Comparison` }
+                            title: {
+                                display: true,
+                                text: `${productId} - ${product.request.displayText} Forecast Comparison`
+                            }
                         },
                         scales: {
-                            y: { beginAtZero: true, title: { display: true, text: 'Forecast Value' } }
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Forecast Value' }
+                            },
+                            x: {
+                                title: { display: true, text: 'Daily Breakdown' }
+                            }
                         }
                     }
                 });
+
                 const modal = new bootstrap.Modal(document.getElementById('productModal'));
                 modal.show();
             }
-
             function exportResults() {
                 alert('Export functionality would be implemented here');
             }

@@ -41,17 +41,13 @@
                                             <th>Revenue</th>
                                             <th>Stock Levels</th>
                                             <th>Procurement Lead Time</th>
-                                            <th>Order Quantities</th>
                                             <th>Shipping Times</th>
                                             <th>Shipping Carriers</th>
                                             <th>Shipping Costs</th>
                                             <th>Supplier Name</th>
                                             <th>Location</th>
-                                            <th>Production Volumes</th>
                                             <th>Manufacturing Lead Time</th>
                                             <th>Manufacturing Costs</th>
-                                            <th>Inspection Results</th>
-                                            <th>Defect Rates</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -67,17 +63,13 @@
                                                 <td>@item.RevenueGenerated.ToString("C")</td>
                                                 <td>@item.StockLevels</td>
                                                 <td>@item.ProcurementLeadTime</td>
-                                                <td>@item.OrderQuantities</td>
                                                 <td>@item.ShippingTimes</td>
                                                 <td>@item.ShippingCarriers</td>
                                                 <td>@item.ShippingCosts.ToString("C")</td>
                                                 <td>@item.SupplierName</td>
                                                 <td>@item.Location</td>
-                                                <td>@item.ProductionVolumes</td>
                                                 <td>@item.ManufacturingLeadTime</td>
                                                 <td>@item.ManufacturingCosts.ToString("C")</td>
-                                                <td>@item.InspectionResults</td>
-                                                <td>@item.DefectRates.ToString("P2")</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -141,10 +133,6 @@
                                             <td class="text-muted" style="font-size: 0.75rem;">Days</td>
                                         </tr>
                                         <tr>
-                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Order Quantities</td>
-                                            <td class="text-muted" style="font-size: 0.75rem;">Units</td>
-                                        </tr>
-                                        <tr>
                                             <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Shipping Times</td>
                                             <td class="text-muted" style="font-size: 0.75rem;">Number</td>
                                         </tr>
@@ -165,24 +153,12 @@
                                             <td class="text-muted" style="font-size: 0.75rem;">City</td>
                                         </tr>
                                         <tr>
-                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Production Volumes</td>
-                                            <td class="text-muted" style="font-size: 0.75rem;">Units</td>
-                                        </tr>
-                                        <tr>
                                             <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Manufacturing Lead Time</td>
                                             <td class="text-muted" style="font-size: 0.75rem;">Days</td>
                                         </tr>
                                         <tr>
                                             <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Manufacturing Costs</td>
                                             <td class="text-muted" style="font-size: 0.75rem;"> $ </td>
-                                        </tr>
-                                        <tr>
-                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Inspection Results</td>
-                                            <td class="text-muted" style="font-size: 0.75rem;">Status</td>
-                                        </tr>
-                                        <tr>
-                                            <td class="fw-bold text-truncate" style="font-size: 0.8rem;">Defect Rates</td>
-                                            <td class="text-muted" style="font-size: 0.75rem;">%</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -223,11 +199,32 @@
                         <div class="card-body">
                             <form asp-action="Predict" method="post">
                                 @Html.AntiForgeryToken()
+
+                                <!-- Time Unit Selection -->
                                 <div class="mb-3">
-                                    <label class="form-label">Forecast Horizon (Days)</label>
-                                    <input type="number" class="form-control" name="horizon" value="7" min="1" max="30">
-                                    <div class="form-text">Number of days to forecast ahead</div>
+                                    <label class="form-label">Forecast Unit</label>
+                                    <select class="form-select" id="forecastUnit" name="unit" onchange="updatePeriodLimits()">
+                                        <option value="Days" selected>Days</option>
+                                        <option value="Weeks">Weeks</option>
+                                        <option value="Months">Months</option>
+                                    </select>
+                                    <div class="form-text">Choose the time unit for forecasting</div>
                                 </div>
+
+                                <!-- Period Selection -->
+                                <div class="mb-3">
+                                    <label class="form-label">Forecast Period</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="forecastQuantity" name="quantity" value="7" min="1" max="90">
+                                        <span class="input-group-text" id="unitLabel">days</span>
+                                    </div>
+                                    <div class="form-text" id="periodHelp">Number of days to forecast ahead (max 90)</div>
+                                    <div class="form-text text-info" id="periodPreview">Forecast period: 7 days</div>
+                                </div>
+
+                                <!-- Hidden field for horizon calculation (will be calculated client-side) -->
+                                <input type="hidden" id="horizonDays" name="horizon" value="7">
+
                                 <div class="d-grid">
                                     <button type="submit" class="btn btn-success btn-lg" id="predictBtn">
                                         <span id="predictSpinner" class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
@@ -239,6 +236,86 @@
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function updatePeriodLimits() {
+                        const unitSelect = document.getElementById('forecastUnit');
+                        const quantityInput = document.getElementById('forecastQuantity');
+                        const unitLabel = document.getElementById('unitLabel');
+                        const periodHelp = document.getElementById('periodHelp');
+                        const horizonInput = document.getElementById('horizonDays');
+                        const periodPreview = document.getElementById('periodPreview');
+
+                        const unit = unitSelect.value;
+                        let maxValue, helpText, labelText;
+
+                        switch(unit) {
+                            case 'Days':
+                                maxValue = 90;
+                                helpText = 'Number of days to forecast ahead (max 90)';
+                                labelText = 'days';
+                                break;
+                            case 'Weeks':
+                                maxValue = 52;
+                                helpText = 'Number of weeks to forecast ahead (max 52)';
+                                labelText = 'weeks';
+                                break;
+                            case 'Months':
+                                maxValue = 12;
+                                helpText = 'Number of months to forecast ahead (max 12)';
+                                labelText = 'months';
+                                break;
+                        }
+
+                        quantityInput.max = maxValue;
+                        unitLabel.textContent = labelText;
+                        periodHelp.textContent = helpText;
+
+                        // Reset quantity if it exceeds the new max
+                        if (parseInt(quantityInput.value) > maxValue) {
+                            quantityInput.value = Math.min(maxValue, unit === 'Days' ? 7 : unit === 'Weeks' ? 4 : 1);
+                        }
+
+                        updateHorizonAndPreview();
+                    }
+
+                    function updateHorizonAndPreview() {
+                        const unit = document.getElementById('forecastUnit').value;
+                        const quantity = parseInt(document.getElementById('forecastQuantity').value) || 1;
+                        const horizonInput = document.getElementById('horizonDays');
+                        const periodPreview = document.getElementById('periodPreview');
+
+                        let horizonDays;
+                        let previewText;
+
+                        switch(unit) {
+                            case 'Days':
+                                horizonDays = quantity;
+                                previewText = `Forecast period: ${quantity} day${quantity > 1 ? 's' : ''}`;
+                                break;
+                            case 'Weeks':
+                                horizonDays = quantity * 7;
+                                previewText = `Forecast period: ${quantity} week${quantity > 1 ? 's' : ''} (${horizonDays} days)`;
+                                break;
+                            case 'Months':
+                                // Approximate months as 30 days each for simplicity
+                                horizonDays = quantity * 30;
+                                previewText = `Forecast period: ${quantity} month${quantity > 1 ? 's' : ''} (approx ${horizonDays} days)`;
+                                break;
+                        }
+
+                        horizonInput.value = horizonDays;
+                        periodPreview.textContent = previewText;
+                    }
+
+                    // Initialize on page load
+                    document.addEventListener('DOMContentLoaded', function() {
+                        updatePeriodLimits();
+
+                        // Add event listener for quantity changes
+                        document.getElementById('forecastQuantity').addEventListener('input', updateHorizonAndPreview);
+                    });
+                </script>
             </div>
         </div>
     </div>

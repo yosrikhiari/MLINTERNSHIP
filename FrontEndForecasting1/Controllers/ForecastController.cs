@@ -102,23 +102,46 @@ namespace FrontEndForecasting1.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Predict(int horizon = 7)
+        public async Task<IActionResult> Predict(int horizon = 7, string unit = "Days", int quantity = 7)
         {
             try
             {
-                _logger.LogInformation("Predict method called with horizon: {Horizon}", horizon);
+                _logger.LogInformation("Predict method called with horizon: {Horizon}, unit: {Unit}, quantity: {Quantity}",
+                    horizon, unit, quantity);
 
-                // Validate horizon parameter
-                if (horizon < 1 || horizon > 30)
+                // Validate unit parameter
+                if (!Enum.TryParse<ForecastUnit>(unit, out var forecastUnit))
                 {
-                    _logger.LogWarning("Invalid horizon value: {Horizon}", horizon);
-                    ViewBag.Error = "Forecast horizon must be between 1 and 30 days.";
+                    _logger.LogWarning("Invalid unit value: {Unit}", unit);
+                    ViewBag.Error = "Invalid forecast unit specified.";
                     return View("Errors");
                 }
 
+                // Create forecast request
+                var forecastRequest = new ForecastRequest
+                {
+                    Unit = forecastUnit,
+                    Quantity = quantity
+                };
+
+                // Validate the forecast request
+                var (isValid, errorMessage) = ImprovedDemandForecaster.ValidateForecastRequest(forecastRequest);
+                if (!isValid)
+                {
+                    _logger.LogWarning("Invalid forecast request: {ErrorMessage}", errorMessage);
+                    ViewBag.Error = errorMessage;
+                    return View("Errors");
+                }
+
+                // Use the calculated horizon from the request
+                var actualHorizon = forecastRequest.HorizonInDays;
+
+                _logger.LogInformation("Using forecast horizon of {ActualHorizon} days for {Quantity} {Unit}",
+                    actualHorizon, quantity, unit);
+
                 // Retrieve file path from TempData
                 var tempFilePath = TempData["CsvDataFilePath"] as string;
-                var fileName = TempData["FileName"] as string; // Keep filename for display
+                var fileName = TempData["FileName"] as string;
 
                 if (string.IsNullOrEmpty(tempFilePath) || !System.IO.File.Exists(tempFilePath))
                 {
@@ -146,11 +169,11 @@ namespace FrontEndForecasting1.Controllers
                 _logger.LogInformation("Processing {Count} records for prediction", supplyChainData.Count);
 
                 // Add timeout for forecasting
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(15)); // Increased timeout for longer forecasts
 
                 var forecaster = new ImprovedDemandForecaster();
                 var results = await Task.Run(() =>
-                    forecaster.ForecastAllProducts(supplyChainData, horizon: horizon), cts.Token);
+                    forecaster.ForecastAllProductsWithTimeUnits(supplyChainData, forecastRequest), cts.Token);
 
                 if (results == null || results.Count == 0)
                 {
@@ -163,8 +186,11 @@ namespace FrontEndForecasting1.Controllers
 
                 // Pass additional data to view
                 ViewBag.FileName = fileName;
-                ViewBag.Horizon = horizon;
+                ViewBag.Horizon = actualHorizon;
+                ViewBag.HorizonDisplay = forecastRequest.GetDisplayText();
                 ViewBag.RecordCount = supplyChainData.Count;
+                ViewBag.ForecastUnit = unit;
+                ViewBag.ForecastQuantity = quantity;
 
                 return View("Results", results);
             }
@@ -187,7 +213,6 @@ namespace FrontEndForecasting1.Controllers
                 return View("Errors");
             }
         }
-
         // Helper method for safe file cleanup
         private async Task<bool> CleanupOldTempFilesAsync()
         {

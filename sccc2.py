@@ -2,362 +2,451 @@ import csv
 import random
 import math
 from datetime import datetime, timedelta
-import pandas as pd
+from typing import Dict, List, Tuple
 
-# Define constants
-NUM_SKUS = 10  # Number of unique SKUs
-ENTRIES_PER_SKU = 110  # Total entries per SKU
+# Enhanced configuration for complex seasonality testing
+NUM_SKUS = 15
+ENTRIES_PER_SKU = 365  # Full year of data for better seasonality detection
 CSV_FILE_PATH = 'supply_chain_data.csv'
 
-# Define categorical values
-PRODUCT_TYPES = ['haircare', 'skincare', 'cosmetics']
-DEMOGRAPHICS = ['Male', 'Female', 'Non-binary', 'Unknown']
-CARRIERS = ['Carrier A', 'Carrier B', 'Carrier C']
-SUPPLIERS = ['Supplier 1', 'Supplier 2', 'Supplier 3', 'Supplier 4', 'Supplier 5']
-LOCATIONS = ['Mumbai', 'Delhi', 'Bangalore', 'Kolkata', 'Chennai']
-INSPECTION_RESULTS = ['Pass', 'Fail', 'Pending']
-TRANSPORT_MODES = ['Road', 'Rail', 'Air', 'Sea']
-ROUTES = ['Route A', 'Route B', 'Route C']
-
-# Define holidays with realistic durations (Indian context)
-HOLIDAYS = {
-    'Diwali': {'month': 11, 'day': 12, 'boost': 2.8, 'duration': 5, 'type': 'major'},
-    'Holi': {'month': 3, 'day': 13, 'boost': 1.9, 'duration': 2, 'type': 'festival'},
-    'Eid': {'month': 4, 'day': 21, 'boost': 1.7, 'duration': 2, 'type': 'festival'},
-    'Dussehra': {'month': 10, 'day': 15, 'boost': 1.5, 'duration': 2, 'type': 'festival'},
-    'Christmas': {'month': 12, 'day': 25, 'boost': 2.1, 'duration': 3, 'type': 'major'},
-    'New Year': {'month': 1, 'day': 1, 'boost': 1.8, 'duration': 2, 'type': 'celebration'},
-    'Karva Chauth': {'month': 10, 'day': 20, 'boost': 2.2, 'duration': 1, 'type': 'beauty'},
-    'Raksha Bandhan': {'month': 8, 'day': 19, 'boost': 1.4, 'duration': 1, 'type': 'festival'}
-}
-
-# Define seasonal events with specific durations
-SEASONAL_EVENTS = {
-    'Valentine\'s Day': {'month': 2, 'day': 14, 'boost': 2.0, 'duration': 1, 'type': 'beauty'},
-    'Mother\'s Day': {'month': 5, 'day': 8, 'boost': 1.8, 'duration': 1, 'type': 'gift'},
-    'Women\'s Day': {'month': 3, 'day': 8, 'boost': 1.6, 'duration': 1, 'type': 'beauty'},
-    'Black Friday': {'month': 11, 'day': 24, 'boost': 3.5, 'duration': 1, 'type': 'sale'},
-    'Cyber Monday': {'month': 11, 'day': 27, 'boost': 2.8, 'duration': 1, 'type': 'sale'},
-    'Summer Sale': {'month': 6, 'day': 15, 'boost': 1.6, 'duration': 7, 'type': 'sale'},
-    'Winter Sale': {'month': 12, 'day': 26, 'boost': 2.0, 'duration': 5, 'type': 'sale'},
-    'Back to School': {'month': 6, 'day': 1, 'boost': 1.3, 'duration': 15, 'type': 'seasonal'}
-}
-
-# Product type specific event multipliers
-PRODUCT_EVENT_MULTIPLIERS = {
-    'cosmetics': {
-        'beauty': 1.5,  # Extra boost for beauty-related events
-        'gift': 1.3,
-        'festival': 1.4,
-        'sale': 1.2,
-        'major': 1.3,
-        'celebration': 1.2,
-        'seasonal': 1.0
-    },
+# Product categories with distinct seasonal behaviors
+PRODUCT_CATEGORIES = {
     'skincare': {
-        'beauty': 1.4,
-        'gift': 1.2,
-        'festival': 1.1,
-        'sale': 1.3,
-        'major': 1.2,
-        'celebration': 1.1,
-        'seasonal': 1.2
+        'base_demand': (150, 400),
+        'winter_boost': 1.4,  # Dry skin season
+        'monsoon_boost': 1.2,  # Humidity issues
+        'summer_penalty': 0.9,
+        'trend': (-0.2, 0.8)
     },
     'haircare': {
-        'beauty': 1.2,
-        'gift': 1.1,
-        'festival': 1.2,
-        'sale': 1.1,
-        'major': 1.1,
-        'celebration': 1.0,
-        'seasonal': 1.1
+        'base_demand': (100, 350),
+        'monsoon_boost': 1.5,  # Hair fall season
+        'winter_boost': 1.1,
+        'summer_boost': 1.2,  # Dandruff issues
+        'trend': (-0.1, 1.0)
+    },
+    'cosmetics': {
+        'base_demand': (200, 500),
+        'festival_boost': 1.8,  # Wedding/festival season
+        'valentine_boost': 1.6,
+        'summer_penalty': 0.85,
+        'trend': (0.0, 1.5)
+    },
+    'fragrances': {
+        'base_demand': (80, 250),
+        'winter_boost': 1.3,  # Longevity in cold weather
+        'valentine_boost': 2.0,
+        'festival_boost': 1.4,
+        'trend': (-0.3, 1.2)
+    },
+    'suncare': {
+        'base_demand': (50, 200),
+        'summer_boost': 3.0,  # Peak summer demand
+        'spring_boost': 1.5,
+        'winter_penalty': 0.3,
+        'trend': (0.2, 0.8)
     }
 }
 
+# Complex holiday and event calendar
+MAJOR_HOLIDAYS = {
+    'Diwali': {'start_month': 10, 'end_month': 11, 'peak_day': 15, 'boost': 2.8, 'duration': 14, 'buildup_days': 7},
+    'Christmas': {'start_month': 12, 'end_month': 12, 'peak_day': 25, 'boost': 2.2, 'duration': 7, 'buildup_days': 10},
+    'New Year': {'start_month': 12, 'end_month': 1, 'peak_day': 31, 'boost': 1.9, 'duration': 5, 'buildup_days': 3},
+    'Holi': {'start_month': 3, 'end_month': 3, 'peak_day': 13, 'boost': 1.7, 'duration': 3, 'buildup_days': 2},
+    'Eid': {'start_month': 4, 'end_month': 4, 'peak_day': 22, 'boost': 1.8, 'duration': 3, 'buildup_days': 5},
+}
 
-def is_event_period(date, event_info):
-    """Check if date falls within event period with exact date matching"""
-    if event_info['month'] != date.month:
-        return False
-    
-    event_start = date.replace(day=event_info['day'])
-    event_end = event_start + timedelta(days=event_info['duration'] - 1)
-    
-    return event_start <= date <= event_end
+SEASONAL_EVENTS = {
+    'Valentine\'s Day': {'month': 2, 'day': 14, 'boost': 2.1, 'duration': 7, 'buildup_days': 7},
+    'Mother\'s Day': {'month': 5, 'day': 12, 'boost': 1.6, 'duration': 3, 'buildup_days': 3},
+    'Black Friday': {'month': 11, 'day': 24, 'boost': 3.2, 'duration': 4, 'buildup_days': 3},
+    'Cyber Monday': {'month': 11, 'day': 27, 'boost': 2.8, 'duration': 1, 'buildup_days': 0},
+    'Summer Sale': {'month': 6, 'day': 15, 'boost': 1.8, 'duration': 15, 'buildup_days': 5},
+    'Winter Sale': {'month': 1, 'day': 26, 'boost': 1.9, 'duration': 10, 'buildup_days': 3},
+    'Back to School': {'month': 7, 'day': 1, 'boost': 1.4, 'duration': 20, 'buildup_days': 5},
+}
 
+# Wedding season patterns (India specific)
+WEDDING_SEASONS = [
+    {'start_month': 11, 'end_month': 2, 'intensity': 1.5},  # Peak wedding season
+    {'start_month': 4, 'end_month': 5, 'intensity': 1.2},   # Spring weddings
+]
 
-def get_seasonal_multiplier(date, product_type):
-    """Get seasonal multiplier based on product type and date"""
+# Monsoon patterns (affects different products differently)
+MONSOON_PERIOD = {'start_month': 6, 'end_month': 9, 'intensity_curve': [0.8, 1.2, 1.4, 1.1]}
+
+def get_complex_seasonality(date: datetime, product_type: str) -> float:
+    """Generate complex seasonal patterns for Prophet to detect"""
+    multiplier = 1.0
     month = date.month
-
+    day_of_year = date.timetuple().tm_yday
+    
+    product_config = PRODUCT_CATEGORIES.get(product_type, PRODUCT_CATEGORIES['skincare'])
+    
+    # 1. Basic seasonal cycles (multiple harmonics for complexity)
+    # Annual cycle with multiple harmonics
+    annual_cycle = (
+        0.3 * math.sin(2 * math.pi * day_of_year / 365.25) +
+        0.2 * math.sin(4 * math.pi * day_of_year / 365.25) +
+        0.1 * math.sin(6 * math.pi * day_of_year / 365.25)
+    )
+    multiplier += annual_cycle
+    
+    # 2. Product-specific seasonal adjustments
     if product_type == 'skincare':
-        # Higher demand in winter months (dry skin)
-        if month in [11, 12, 1, 2]:
-            return 1.4
-        elif month in [6, 7, 8]:  # Monsoon season (humidity issues)
-            return 1.2
-        elif month in [3, 4, 5]:  # Pre-summer prep
-            return 1.1
-        else:
-            return 1.0
+        if month in [11, 12, 1, 2]:  # Winter - dry skin
+            multiplier *= product_config.get('winter_boost', 1.0)
+        elif month in [6, 7, 8, 9]:  # Monsoon - humidity issues
+            multiplier *= product_config.get('monsoon_boost', 1.0)
+        elif month in [4, 5]:  # Summer heat
+            multiplier *= product_config.get('summer_penalty', 1.0)
+            
     elif product_type == 'haircare':
-        # Higher demand during monsoon and winter
-        if month in [6, 7, 8]:  # Monsoon - hair problems
-            return 1.3
-        elif month in [11, 12, 1]:  # Winter - dry hair
-            return 1.2
-        elif month in [4, 5]:  # Pre-monsoon prep
-            return 1.1
-        else:
-            return 1.0
-    elif product_type == 'cosmetics':
-        # Higher demand during festival and wedding seasons
-        if month in [10, 11, 12]:  # Peak festival/wedding season
-            return 1.3
-        elif month in [2, 3]:  # Spring festivals and events
-            return 1.2
-        elif month in [8, 9]:  # Post-monsoon festivities
-            return 1.1
-        else:
-            return 1.0
-
-    return 1.0
-
-
-def get_weekly_pattern(date):
-    """Get weekly pattern multiplier with more realistic patterns"""
-    weekday = date.weekday()  # 0=Monday, 6=Sunday
-
-    # Shopping patterns: Higher on weekends, moderate on Friday
-    if weekday == 4:  # Friday
-        return 1.15
-    elif weekday == 5:  # Saturday - peak shopping day
-        return 1.35
-    elif weekday == 6:  # Sunday
-        return 1.25
-    elif weekday == 0:  # Monday - lower sales
-        return 0.85
-    elif weekday == 1:  # Tuesday - lowest sales
-        return 0.80
-    else:  # Wednesday, Thursday
-        return 0.95
-
-
-def calculate_demand_with_events(base_demand, date, product_type):
-    """Calculate demand considering all events and seasonality with improved logic"""
-    demand = base_demand
-
-    # Apply seasonal multiplier first
-    seasonal_mult = get_seasonal_multiplier(date, product_type)
-    demand *= seasonal_mult
-
-    # Apply weekly pattern
-    weekly_mult = get_weekly_pattern(date)
-    demand *= weekly_mult
-
-    # Track applied events to avoid double counting
-    event_applied = False
-    applied_event_type = None
-
-    # Check for holidays (priority over seasonal events)
-    for holiday, info in HOLIDAYS.items():
-        if is_event_period(date, info):
-            # Apply base event boost
-            event_boost = info['boost']
+        if month in [6, 7, 8, 9]:  # Monsoon - hair fall peak
+            multiplier *= product_config.get('monsoon_boost', 1.0)
+        elif month in [3, 4, 5]:  # Summer - dandruff issues
+            multiplier *= product_config.get('summer_boost', 1.0)
             
-            # Apply product-specific multiplier
-            product_mult = PRODUCT_EVENT_MULTIPLIERS[product_type].get(info['type'], 1.0)
-            final_boost = event_boost * product_mult
+    elif product_type == 'suncare':
+        if month in [3, 4, 5, 6]:  # Summer peak
+            multiplier *= product_config.get('summer_boost', 1.0)
+        elif month in [11, 12, 1, 2]:  # Winter low
+            multiplier *= product_config.get('winter_penalty', 1.0)
+    
+    # 3. Wedding season effects
+    for wedding_season in WEDDING_SEASONS:
+        if is_in_season_range(date, wedding_season['start_month'], wedding_season['end_month']):
+            if product_type in ['cosmetics', 'fragrances']:
+                multiplier *= wedding_season['intensity']
+    
+    # 4. Weekly patterns (Prophet should detect this)
+    week_day = date.weekday()
+    if week_day == 5:  # Saturday - shopping day
+        multiplier *= 1.3
+    elif week_day == 6:  # Sunday - family shopping
+        multiplier *= 1.2
+    elif week_day in [1, 2]:  # Tuesday, Wednesday - mid-week lull
+        multiplier *= 0.9
+    
+    # 5. Month-end salary effect
+    if date.day >= 28:
+        multiplier *= 1.15
+    elif date.day <= 3:  # Beginning of month
+        multiplier *= 1.1
+    elif 10 <= date.day <= 15:  # Mid-month lull
+        multiplier *= 0.95
+    
+    return max(0.3, min(3.0, multiplier))
+
+def calculate_event_boost(date: datetime, product_type: str) -> Tuple[float, bool, str]:
+    """Calculate boost from holidays and events with buildup periods"""
+    boost = 1.0
+    event_active = False
+    active_event = None
+    
+    # Check major holidays
+    for holiday, info in MAJOR_HOLIDAYS.items():
+        if is_in_event_period(date, info):
+            # Create buildup effect
+            days_to_peak = abs((date - get_peak_date(date.year, info)).days)
+            if days_to_peak <= info['buildup_days']:
+                buildup_factor = 1.0 - (days_to_peak / (info['buildup_days'] + 1)) * 0.3
+            else:
+                buildup_factor = 0.7  # Post-event decline
             
-            demand *= final_boost
-            event_applied = True
-            applied_event_type = holiday
+            event_boost = info['boost'] * buildup_factor
+            
+            # Product-specific holiday effects
+            if holiday in ['Diwali', 'Christmas'] and product_type in ['cosmetics', 'fragrances']:
+                event_boost *= 1.2
+            elif holiday == 'Holi' and product_type == 'skincare':
+                event_boost *= 0.8  # Less demand due to colors
+            
+            boost *= event_boost
+            event_active = True
+            active_event = holiday
             break
-
-    # Check for seasonal events only if no holiday was applied
-    if not event_applied:
+    
+    # Check seasonal events
+    if not event_active:
         for event, info in SEASONAL_EVENTS.items():
-            if is_event_period(date, info):
-                # Apply base event boost
-                event_boost = info['boost']
+            if is_in_event_period_simple(date, info):
+                days_to_event = abs((date - datetime(date.year, info['month'], info['day'])).days)
+                if days_to_event <= info.get('buildup_days', 0):
+                    buildup_factor = 1.0 - (days_to_event / (info.get('buildup_days', 1) + 1)) * 0.2
+                else:
+                    buildup_factor = 0.8
                 
-                # Apply product-specific multiplier
-                product_mult = PRODUCT_EVENT_MULTIPLIERS[product_type].get(info['type'], 1.0)
-                final_boost = event_boost * product_mult
+                event_boost = info['boost'] * buildup_factor
                 
-                demand *= final_boost
-                event_applied = True
-                applied_event_type = event
+                # Product-specific event effects
+                if event == 'Valentine\'s Day' and product_type in ['cosmetics', 'fragrances']:
+                    event_boost *= 1.3
+                elif event in ['Black Friday', 'Cyber Monday']:
+                    event_boost *= 1.1  # Universal boost
+                elif event == 'Summer Sale' and product_type == 'suncare':
+                    event_boost *= 1.4
+                
+                boost *= event_boost
+                event_active = True
+                active_event = event
                 break
-
-    return demand, event_applied, applied_event_type
-
-
-def calculate_realistic_sales_metrics(demand, price, availability, stock_levels):
-    """Calculate realistic sales metrics based on demand, price, and constraints"""
-    # Price elasticity effect
-    base_price = 50.0  # Assumed base price
-    price_elasticity = -0.8  # Negative elasticity
-    price_effect = (price / base_price) ** price_elasticity
     
-    adjusted_demand = demand * price_effect
+    return boost, event_active, active_event or "None"
+
+def is_in_season_range(date: datetime, start_month: int, end_month: int) -> bool:
+    """Check if date falls within a seasonal range (handles year wrap)"""
+    month = date.month
+    if start_month <= end_month:
+        return start_month <= month <= end_month
+    else:  # Wraps around year (e.g., Nov to Feb)
+        return month >= start_month or month <= end_month
+
+def is_in_event_period(date: datetime, event_info: Dict) -> bool:
+    """Check if date falls within event period with complex logic"""
+    if 'start_month' in event_info and 'end_month' in event_info:
+        return is_in_season_range(date, event_info['start_month'], event_info['end_month'])
+    else:
+        peak_date = get_peak_date(date.year, event_info)
+        start_date = peak_date - timedelta(days=event_info.get('buildup_days', 0))
+        end_date = peak_date + timedelta(days=event_info.get('duration', 1))
+        return start_date <= date <= end_date
+
+def is_in_event_period_simple(date: datetime, event_info: Dict) -> bool:
+    """Simple event period check"""
+    try:
+        event_date = datetime(date.year, event_info['month'], event_info['day'])
+        start_date = event_date - timedelta(days=event_info.get('buildup_days', 0))
+        end_date = event_date + timedelta(days=event_info.get('duration', 1))
+        return start_date <= date <= end_date
+    except ValueError:
+        return False
+
+def get_peak_date(year: int, event_info: Dict) -> datetime:
+    """Get peak date for an event"""
+    return datetime(year, event_info.get('peak_month', event_info.get('start_month')), 
+                   event_info.get('peak_day', 15))
+
+def add_complex_noise(base_value: float, noise_level: float = 0.1) -> float:
+    """Add complex noise patterns that Prophet should handle"""
+    # Multiple noise components
+    gaussian_noise = random.gauss(0, base_value * noise_level)
     
-    # Availability constraint
-    availability_factor = availability / 100.0
-    constrained_demand = adjusted_demand * availability_factor
+    # Occasional spikes (supply disruptions, viral social media, etc.)
+    if random.random() < 0.02:  # 2% chance of anomaly
+        spike = random.choice([0.3, 1.8, 2.5])  # Supply shortage or viral demand
+        gaussian_noise += base_value * (spike - 1.0)
     
-    # Stock constraint
-    max_sellable = min(constrained_demand, stock_levels * 0.8)  # Don't sell all stock
+    # Weekly autocorrelation noise
+    weekly_noise = base_value * 0.05 * math.sin(random.uniform(0, 2 * math.pi))
     
-    # Add some randomness for realism
-    products_sold = max(0, int(max_sellable + random.gauss(0, max_sellable * 0.1)))
+    return base_value + gaussian_noise + weekly_noise
+
+def generate_enhanced_data():
+    """Generate enhanced dataset with complex seasonality patterns"""
+    data = []
+    start_date = datetime(2023, 1, 1)  # Full year for better pattern detection
     
-    # Revenue calculation
-    revenue = products_sold * price
+    print(f"Generating enhanced dataset with {NUM_SKUS} SKUs and {ENTRIES_PER_SKU} days each...")
+    print("Complex patterns included:")
+    print("- Multi-harmonic seasonal cycles")
+    print("- Product-specific seasonality")
+    print("- Holiday buildup and decay effects")
+    print("- Wedding season patterns")
+    print("- Weekly and monthly cycles")
+    print("- Supply disruption anomalies")
     
-    return products_sold, revenue
-
-
-# Generate data
-data = []
-start_date = datetime(2023, 1, 1)
-
-for sku in range(1, NUM_SKUS + 1):
-    product_type = random.choice(PRODUCT_TYPES)
-    
-    # More realistic base demand ranges by product type
-    if product_type == 'cosmetics':
-        base_demand = random.uniform(150, 600)
-    elif product_type == 'skincare':
-        base_demand = random.uniform(200, 500)
-    else:  # haircare
-        base_demand = random.uniform(100, 400)
-    
-    trend = random.uniform(-1, 2)  # More controlled trend
-    seasonality = random.uniform(20, 60)
-    period = 30.44  # Monthly seasonality (average days per month)
-    start_date_sku = start_date + timedelta(days=(sku - 1) * 5)  # Stagger starts
-
-    for i in range(ENTRIES_PER_SKU):
-        date = start_date_sku + timedelta(days=i)
-
-        # Calculate base demand with seasonality
-        seasonal_component = seasonality * math.sin(2 * math.pi * i / period)
-        base_demand_with_trend = base_demand + trend * i + seasonal_component
-
-        # Apply event-based multipliers
-        demand, event_applied, applied_event = calculate_demand_with_events(
-            base_demand_with_trend, date, product_type
-        )
-
-        # Add controlled noise
-        demand += random.gauss(0, base_demand * 0.05)  # 5% noise relative to base
-
-        # Generate other realistic variables
-        price = round(random.uniform(15.0, 120.0), 2)
-        availability = random.randint(85, 100)  # Higher availability range
-        stock_levels = random.randint(100, 300)  # Higher stock levels
-
-        # Calculate realistic sales metrics
-        products_sold, revenue = calculate_realistic_sales_metrics(
-            demand, price, availability, stock_levels
-        )
-
-        # Other variables with improved logic
-        demographics = random.choice(DEMOGRAPHICS)
-        # FIXED: Generate separate lead times for different contexts
-        procurement_lead_time = random.randint(3, 25)  # Time to procure materials
-        order_quantities = max(50, int(demand * random.uniform(0.8, 1.5)))
-        shipping_times = random.randint(2, 8)
-        carrier = random.choice(CARRIERS)
-        shipping_costs = round(random.uniform(8.0, 30.0), 2)
-        supplier = random.choice(SUPPLIERS)
-        location = random.choice(LOCATIONS)
-        production_volumes = max(products_sold * 2, random.randint(200, 800))
-        manufacturing_lead_time = random.randint(5, 25)  # Time to manufacture
-        manufacturing_costs = round(price * random.uniform(0.3, 0.7), 2)
-        inspection = random.choices(INSPECTION_RESULTS, weights=[85, 10, 5])[0]
-        defect_rates = round(random.uniform(0.5, 3.5), 2)
-        transport_mode = random.choice(TRANSPORT_MODES)
-        route = random.choice(ROUTES)
-        costs = round(revenue * random.uniform(0.6, 0.8), 2)
-
-        # Additional features
-        is_weekend = 1 if date.weekday() >= 5 else 0
-        day_of_week = date.weekday()
-        month = date.month
-        quarter = (date.month - 1) // 3 + 1
-        year = date.year
-
-        # Event indicators
-        is_holiday = 0
-        holiday_name = ''
-        is_event = 0
-        event_name = ''
+    for sku in range(1, NUM_SKUS + 1):
+        product_type = random.choice(list(PRODUCT_CATEGORIES.keys()))
+        product_config = PRODUCT_CATEGORIES[product_type]
         
-        if applied_event:
-            if applied_event in HOLIDAYS:
-                is_holiday = 1
-                holiday_name = applied_event
-            elif applied_event in SEASONAL_EVENTS:
-                is_event = 1
-                event_name = applied_event
+        # Initialize product-specific parameters
+        base_demand = random.uniform(*product_config['base_demand'])
+        trend = random.uniform(*product_config['trend'])
+        
+        # Multiple seasonal components for complexity
+        annual_amplitude = random.uniform(30, 80)
+        monthly_amplitude = random.uniform(15, 30)
+        weekly_amplitude = random.uniform(10, 25)
+        
+        print(f"Generating SKU{sku} ({product_type}) - Base: {base_demand:.1f}, Trend: {trend:.3f}")
+        
+        for i in range(ENTRIES_PER_SKU):
+            date = start_date + timedelta(days=i)
+            
+            # 1. Base trend
+            base_with_trend = base_demand + (trend * i)
+            
+            # 2. Complex seasonality (multiple components)
+            seasonal_multiplier = get_complex_seasonality(date, product_type)
+            demand_with_seasonality = base_with_trend * seasonal_multiplier
+            
+            # 3. Event boosts
+            event_boost, event_active, event_name = calculate_event_boost(date, product_type)
+            demand_with_events = demand_with_seasonality * event_boost
+            
+            # 4. Add complex noise
+            final_demand = add_complex_noise(demand_with_events, noise_level=0.08)
+            final_demand = max(10, final_demand)  # Minimum realistic demand
+            
+            # Generate corresponding supply chain data
+            price = round(random.uniform(15.0, 120.0), 2)
+            availability = random.randint(85, 100)
+            
+            # Stock levels influenced by seasonality (smart inventory management)
+            base_stock = random.randint(200, 500)
+            if event_active:
+                stock_multiplier = 1.3  # Stock up for events
+            else:
+                stock_multiplier = 1.0 + (seasonal_multiplier - 1.0) * 0.3  # Moderate stock adjustment
+            
+            stock_levels = int(base_stock * stock_multiplier)
+            
+            # Sales calculation (constrained by stock)
+            max_possible_sales = min(int(final_demand * 1.2), stock_levels)
+            products_sold = max(5, min(int(final_demand), max_possible_sales))
+            
+            revenue = round(products_sold * price, 2)
+            
+            # Supply chain metrics with some realism
+            procurement_lead_time = random.randint(3, 25)
+            manufacturing_lead_time = random.randint(5, 20)
+            shipping_times = random.randint(1, 8)
+            shipping_costs = round(random.uniform(8.0, 30.0), 2)
+            manufacturing_costs = round(price * random.uniform(0.35, 0.65), 2)
+            
+            # Categorical variables
+            demographics = random.choice(['Male', 'Female', 'Unisex'])
+            carrier = random.choice(['Express', 'Standard', 'Premium', 'Economy'])
+            supplier = random.choice([f'Supplier_{j}' for j in range(1, 8)])
+            location = random.choice(['Mumbai', 'Delhi', 'Bangalore', 'Chennai', 'Kolkata', 'Pune'])
+            
+            # Date features
+            is_weekend = 1 if date.weekday() >= 5 else 0
+            day_of_week = date.weekday()
+            month = date.month
+            quarter = (date.month - 1) // 3 + 1
+            year = date.year
+            
+            # Add derived features that might help both Prophet and XGBoost
+            day_of_year = date.timetuple().tm_yday
+            week_of_year = date.isocalendar()[1]
+            is_month_end = 1 if date.day >= 28 else 0
+            is_quarter_end = 1 if month % 3 == 0 and date.day >= 28 else 0
+            
+            data.append([
+                date.strftime('%Y-%m-%d'),
+                product_type,
+                f'SKU{sku:03d}',
+                price,
+                availability,
+                products_sold,
+                revenue,
+                demographics,
+                stock_levels,
+                procurement_lead_time,
+                shipping_times,
+                carrier,
+                shipping_costs,
+                supplier,
+                location,
+                manufacturing_lead_time,
+                manufacturing_costs,
+                is_weekend,
+                day_of_week,
+                month,
+                quarter,
+                year,
+                day_of_year,
+                week_of_year,
+                is_month_end,
+                is_quarter_end,
+                1 if event_active else 0,
+                event_name,
+                round(seasonal_multiplier, 4)
+            ])
+    
+    return data
 
-        # Seasonality indicators
-        seasonal_mult = get_seasonal_multiplier(date, product_type)
-
-        # FIXED: Updated data row - removed duplicate lead time, kept distinct ones
-        data.append([
-            date.strftime('%Y-%m-%d'), product_type, f'SKU{sku}', price, availability,
-            products_sold, round(revenue, 2), demographics, stock_levels, procurement_lead_time,
-            order_quantities, shipping_times, carrier, shipping_costs, supplier,
-            location, production_volumes, manufacturing_lead_time,
-            round(manufacturing_costs, 2), inspection, defect_rates, transport_mode, 
-            route, round(costs, 2), is_weekend, day_of_week, month, quarter, year, 
-            is_holiday, holiday_name, is_event, event_name, round(seasonal_mult, 3)
-        ])
-
-# FIXED: Write to CSV - updated header to reflect distinct lead time columns
-with open(CSV_FILE_PATH, 'w', newline='', encoding='utf-8') as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow([
+def write_csv_data(data: List[List]) -> None:
+    """Write data to CSV file"""
+    headers = [
         'Date', 'Product type', 'SKU', 'Price', 'Availability',
         'Number of products sold', 'Revenue generated', 'Customer demographics',
-        'Stock levels', 'Procurement lead time', 'Order quantities', 'Shipping times',
-        'Shipping carriers', 'Shipping costs', 'Supplier name', 'Location',
-        'Production volumes', 'Manufacturing lead time',
-        'Manufacturing costs', 'Inspection results', 'Defect rates',
-        'Transportation modes', 'Routes', 'Costs', 'is_weekend', 'day_of_week',
-        'month', 'quarter', 'year', 'is_holiday', 'holiday_name', 'is_event',
-        'event_name', 'seasonal_multiplier'
-    ])
+        'Stock levels', 'Procurement lead time', 'Shipping times', 'Shipping carriers',
+        'Shipping costs', 'Supplier name', 'Location', 'Manufacturing lead time',
+        'Manufacturing costs', 'is_weekend', 'day_of_week', 'month', 'quarter', 'year',
+        'day_of_year', 'week_of_year', 'is_month_end', 'is_quarter_end',
+        'is_event_active', 'active_event', 'seasonal_multiplier'
+    ]
+    
+    with open(CSV_FILE_PATH, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headers)
+        writer.writerows(data)
+    
+    print(f"\nEnhanced CSV generated: {CSV_FILE_PATH}")
+    print(f"Total entries: {len(data):,}")
+    print(f"Columns: {len(headers)}")
+    print(f"Date range: {data[0][0]} to {data[-1][0]}")
+
+def print_data_summary(data: List[List]) -> None:
+    """Print summary statistics of generated data"""
+    print("\n" + "="*50)
+    print("DATA GENERATION SUMMARY")
+    print("="*50)
+    
+    # Group by product type
+    product_stats = {}
+    event_count = 0
+    
     for row in data:
-        writer.writerow(row)
+        product_type = row[1]
+        products_sold = row[5]
+        is_event = row[27]
+        
+        if product_type not in product_stats:
+            product_stats[product_type] = []
+        product_stats[product_type].append(products_sold)
+        
+        if is_event:
+            event_count += 1
+    
+    print(f"Total data points: {len(data):,}")
+    print(f"Event periods: {event_count:,} ({event_count/len(data)*100:.1f}%)")
+    print(f"Product categories: {len(product_stats)}")
+    
+    print("\nDemand by Product Type:")
+    for product_type, sales in product_stats.items():
+        avg_sales = sum(sales) / len(sales)
+        max_sales = max(sales)
+        min_sales = min(sales)
+        print(f"  {product_type:12}: Avg={avg_sales:6.1f}, Range=[{min_sales:4.0f}, {max_sales:4.0f}]")
+    
+    print("\nComplex patterns included for Prophet detection:")
+    print("✓ Multi-harmonic annual seasonality")
+    print("✓ Product-specific seasonal behaviors")
+    print("✓ Holiday buildup and decay effects")
+    print("✓ Wedding season patterns (India-specific)")
+    print("✓ Weekly shopping patterns")
+    print("✓ Month-end salary effects")
+    print("✓ Supply disruption anomalies")
+    print("✓ Event-driven demand spikes")
 
-print(f'Optimized CSV file generated at: {CSV_FILE_PATH}')
-print(f'Total entries: {len(data)}')
-print(f'Date range: {start_date.strftime("%Y-%m-%d")} to {(start_date + timedelta(days=ENTRIES_PER_SKU + (NUM_SKUS - 1) * 5)).strftime("%Y-%m-%d")}')
-
-# Display event summary
-print("\n=== EVENT SUMMARY ===")
-print("\nSingle-day Events:")
-single_day_events = {k: v for k, v in {**HOLIDAYS, **SEASONAL_EVENTS}.items() if v['duration'] == 1}
-for event, info in single_day_events.items():
-    print(f"- {event}: {info['month']}/{info['day']}, Boost: {info['boost']}x")
-
-print("\nMulti-day Events:")
-multi_day_events = {k: v for k, v in {**HOLIDAYS, **SEASONAL_EVENTS}.items() if v['duration'] > 1}
-for event, info in multi_day_events.items():
-    print(f"- {event}: {info['month']}/{info['day']}, Duration: {info['duration']} days, Boost: {info['boost']}x")
-
-print("\nProduct-specific multipliers applied for event types:")
-for product, multipliers in PRODUCT_EVENT_MULTIPLIERS.items():
-    print(f"\n{product.capitalize()}:")
-    for event_type, mult in multipliers.items():
-        print(f"  - {event_type}: {mult}x additional multiplier")
-
-print("\n=== FIXED REDUNDANCY ISSUES ===")
-print("✓ Removed duplicate 'Lead time' column")
-print("✓ Kept distinct lead time columns:")
-print("  - 'Procurement lead time': Time to procure raw materials")
-print("  - 'Manufacturing lead time': Time to manufacture products")
+if __name__ == "__main__":
+    # Generate the enhanced dataset
+    enhanced_data = generate_enhanced_data()
+    
+    # Write to CSV
+    write_csv_data(enhanced_data)
+    
+    # Print summary
+    print_data_summary(enhanced_data)
+    
+    print("\n" + "="*50)
+    print("READY FOR PROPHET + XGBOOST TESTING!")
+    print("="*50)
+    print("This dataset contains complex seasonal patterns that will")
+    print("challenge your Prophet seasonal detection and demonstrate")
+    print("how well XGBoost can use Prophet's seasonal features.")
