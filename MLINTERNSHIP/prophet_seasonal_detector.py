@@ -12,33 +12,60 @@ def main():
             input_data = json.load(f)
         
         historical_data = input_data['historical_data']
+        horizon = input_data.get('horizon', 7)  # Get forecast horizon
+        
         df = pd.DataFrame(historical_data)
         df['ds'] = pd.to_datetime(df['ds'])
         df = df.sort_values('ds').reset_index(drop=True)
         
-        # Simple Prophet model for seasonal detection only
+        # Enhanced Prophet model
         m = Prophet(
             yearly_seasonality=True,
             weekly_seasonality=True,
             daily_seasonality=False,
-            seasonality_mode='multiplicative'
+            seasonality_mode='multiplicative',
+            changepoint_prior_scale=0.05,  # Reduce overfitting
+            seasonality_prior_scale=10.0   # Allow stronger seasonality
         )
         
         m.fit(df)
         
-        # Get seasonal components for existing dates
-        forecast = m.predict(df)
+        # Create future dataframe for forecasting
+        future = m.make_future_dataframe(periods=horizon)
+        forecast = m.predict(future)
         
-        # Extract seasonal multiplier (combination of weekly + yearly seasonality)
-        seasonal_spikes = {}
+        # Extract seasonal multipliers for historical data
+        historical_seasonal_spikes = {}
         for i, row in df.iterrows():
-            # Use trend + seasonal components as spike indicator
-            baseline = forecast.loc[i, 'trend']
-            seasonal = forecast.loc[i, 'weekly'] + forecast.loc[i, 'yearly']
-            spike_multiplier = max(0.5, min(3.0, 1.0 + (seasonal / baseline) if baseline > 0 else 1.0))
-            seasonal_spikes[row['ds'].strftime('%Y-%m-%d')] = float(spike_multiplier)
+            baseline = max(forecast.loc[i, 'trend'], 0.1)  # Prevent division by zero
+            weekly_seasonal = forecast.loc[i, 'weekly'] if 'weekly' in forecast.columns else 0
+            yearly_seasonal = forecast.loc[i, 'yearly'] if 'yearly' in forecast.columns else 0
+            
+            # Calculate spike multiplier
+            seasonal_effect = weekly_seasonal + yearly_seasonal
+            spike_multiplier = max(0.5, min(3.0, 1.0 + (seasonal_effect / baseline)))
+            
+            historical_seasonal_spikes[row['ds'].strftime('%Y-%m-%d')] = float(spike_multiplier)
         
-        print(json.dumps(seasonal_spikes))
+        # Extract seasonal multipliers for future dates
+        future_seasonal_spikes = []
+        for i in range(len(df), len(forecast)):
+            baseline = max(forecast.loc[i, 'trend'], 0.1)
+            weekly_seasonal = forecast.loc[i, 'weekly'] if 'weekly' in forecast.columns else 0
+            yearly_seasonal = forecast.loc[i, 'yearly'] if 'yearly' in forecast.columns else 0
+            
+            seasonal_effect = weekly_seasonal + yearly_seasonal
+            spike_multiplier = max(0.5, min(3.0, 1.0 + (seasonal_effect / baseline)))
+            
+            future_seasonal_spikes.append(float(spike_multiplier))
+        
+        # Return both historical and future seasonal patterns
+        result = {
+            'historical_seasonal_spikes': historical_seasonal_spikes,
+            'future_seasonal_spikes': future_seasonal_spikes
+        }
+        
+        print(json.dumps(result))
         
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)

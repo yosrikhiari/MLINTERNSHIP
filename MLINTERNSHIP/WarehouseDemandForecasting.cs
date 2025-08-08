@@ -1277,7 +1277,7 @@ namespace MLINTERNSHIP
                     StockRatio = fullData[i].StockRatio,
                     ProcurementLeadTime = fullData[i].ProcurementLeadTime,
                     ManufacturingLeadTime = fullData[i].ManufacturingLeadTime,
-                    ProphetForecast = prophetSeasonalSpike, // Changed from ProphetSeasonalSpike
+                    ProphetForecast = fullData[i].ProphetSeasonalSpike,
                     IsWeekend = fullData[i].IsWeekend,
                     IsMonthEnd = fullData[i].Date.Day >= 28 ? 1 : 0,
                     IsQuarterEnd = fullData[i].Month % 3 == 0 && fullData[i].Date.Day >= 28 ? 1 : 0,
@@ -1291,68 +1291,122 @@ namespace MLINTERNSHIP
             return xgBoostData;
         }
 
-        private static Dictionary<DateTime, float> DetectSeasonalSpikesWithProphet(List<DemandData> data)
+
+        private static (Dictionary<DateTime, float> historical, List<float> future) DetectSeasonalSpikesWithProphetEnhanced(
+                    List<DemandData> data, int horizon)
         {
-            try
+            const int maxRetries = 2;
+
+            for (int retry = 0; retry <= maxRetries; retry++)
             {
-                var historicalData = data.Select(d => new
+                try
                 {
-                    ds = d.Date.ToString("yyyy-MM-dd"),
-                    y = d.Demand
-                }).ToList();
-
-                var inputData = new { historical_data = historicalData };
-                var jsonInput = JsonConvert.SerializeObject(inputData);
-
-                var tempFilePath = Path.GetTempFileName();
-                File.WriteAllText(tempFilePath, jsonInput);
-
-                var pythonPath = @"C:\Users\yosri\AppData\Local\Microsoft\WindowsApps\python.exe";
-                var scriptPath = @"C:\Users\yosri\Desktop\projects for me\intership 4éme\MLINTERNSHIP\prophet_seasonal_detector.py";
-
-                using (var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
+                    var historicalData = data.Select(d => new
                     {
-                        FileName = pythonPath,
-                        Arguments = $"\"{scriptPath}\" \"{tempFilePath}\"",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                })
-                {
-                    process.Start();
-                    if (!process.WaitForExit(30000)) // 30 second timeout
-                    {
-                        process.Kill();
-                        return CreateFallbackSeasonalSpikes(data);
-                    }
+                        ds = d.Date.ToString("yyyy-MM-dd"),
+                        y = d.Demand
+                    }).ToList();
 
-                    string output = process.StandardOutput.ReadToEnd();
-                    File.Delete(tempFilePath);
-
-                    if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                    var inputData = new
                     {
-                        var seasonalData = JsonConvert.DeserializeObject<Dictionary<string, float>>(output);
-                        return seasonalData.ToDictionary(
-                            kvp => DateTime.ParseExact(kvp.Key, "yyyy-MM-dd", CultureInfo.InvariantCulture),
-                            kvp => kvp.Value
-                        );
+                        historical_data = historicalData,
+                        horizon = horizon
+                    };
+                    var jsonInput = JsonConvert.SerializeObject(inputData);
+
+                    var tempFilePath = Path.GetTempFileName();
+                    File.WriteAllText(tempFilePath, jsonInput);
+
+                    var pythonPath = @"C:\Users\yosri\AppData\Local\Microsoft\WindowsApps\python.exe";
+                    var scriptPath =
+                        @"C:\Users\yosri\Desktop\projects for me\intership 4éme\MLINTERNSHIP\MLINTERNSHIP\prophet_seasonal_detector.py";
+
+                    using (var process = new Process
+                           {
+                               StartInfo = new ProcessStartInfo
+                               {
+                                   FileName = pythonPath,
+                                   Arguments = $"\"{scriptPath}\" \"{tempFilePath}\"",
+                                   RedirectStandardOutput = true,
+                                   RedirectStandardError = true,
+                                   UseShellExecute = false,
+                                   CreateNoWindow = true
+                               }
+                           })
+                    {
+                        process.Start();
+                        if (!process.WaitForExit(30000)) // 30 second timeout
+                        {
+                            process.Kill();
+                            if (retry == maxRetries)
+                                return CreateFallbackSeasonalData(data, horizon);
+                            continue;
+                        }
+
+                        string output = process.StandardOutput.ReadToEnd();
+                        string error = process.StandardError.ReadToEnd();
+                        File.Delete(tempFilePath);
+
+                        if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                        {
+                            var result = JsonConvert.DeserializeObject<dynamic>(output);
+                            var historical = new Dictionary<DateTime, float>();
+                            if (result.historical_seasonal_spikes != null)
+                            {
+                                foreach (var kvp in result.historical_seasonal_spikes)
+                                {
+                                    if (DateTime.TryParseExact(kvp.Name, "yyyy-MM-dd",
+                                            CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                                    {
+                                        historical[date] = (float)kvp.Value;
+                                    }
+                                }
+                            }
+
+                            var future = new List<float>();
+                            if (result.future_seasonal_spikes != null)
+                            {
+                                foreach (var spike in result.future_seasonal_spikes)
+                                {
+                                    future.Add((float)spike);
+                                }
+                            }
+
+                            return (historical, future);
+                        }
+                        else if (retry == maxRetries)
+                        {
+                            Console.WriteLine($"Prophet error after {maxRetries + 1} attempts: {error}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Prophet error: {error}");
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Prophet seasonal detection failed: {ex.Message}");
-            }
-            return CreateFallbackSeasonalSpikes(data);
-        }
-        private static Dictionary<DateTime, float> CreateFallbackSeasonalSpikes(List<DemandData> data)
-        {
-            var fallbackSpikes = new Dictionary<DateTime, float>();
+                catch (Exception ex)
+                {
+                    if (retry == maxRetries)
+                    {
+                        Console.WriteLine($"Prophet seasonal detection failed after {maxRetries + 1} attempts: {ex.Message}");
+                        return CreateFallbackSeasonalData(data, horizon);
+                    }
 
+                    // Wait before retry
+                    Thread.Sleep(1000);
+                }
+            }
+
+            return CreateFallbackSeasonalData(data, horizon);
+            
+        }
+        private static (Dictionary<DateTime, float> historical, List<float> future) CreateFallbackSeasonalData(
+            List<DemandData> data, int horizon)
+        {
+            var historical = new Dictionary<DateTime, float>();
+            var future = new List<float>();
+
+            // Create fallback historical patterns
             foreach (var item in data)
             {
                 float spike = 1.0f;
@@ -1365,14 +1419,59 @@ namespace MLINTERNSHIP
                 if (item.Date.Day >= 28)
                     spike *= 1.1f;
 
-                // Holiday season effect (November-December)
+                // Holiday season effect
                 if (item.Date.Month >= 11)
                     spike *= 1.3f;
 
-                fallbackSpikes[item.Date] = Math.Max(0.5f, Math.Min(3.0f, spike));
+                historical[item.Date] = Math.Max(0.5f, Math.Min(3.0f, spike));
             }
 
-            return fallbackSpikes;
+            // Create fallback future patterns
+            var lastDate = data.Last().Date;
+            for (int i = 1; i <= horizon; i++)
+            {
+                var futureDate = lastDate.AddDays(i);
+                float spike = 1.0f;
+
+                if (futureDate.DayOfWeek == DayOfWeek.Saturday || futureDate.DayOfWeek == DayOfWeek.Sunday)
+                    spike *= 1.2f;
+                if (futureDate.Day >= 28)
+                    spike *= 1.1f;
+                if (futureDate.Month >= 11)
+                    spike *= 1.3f;
+
+                future.Add(Math.Max(0.5f, Math.Min(3.0f, spike)));
+            }
+
+            return (historical, future);
+        }
+        private static float? GetInterpolatedSeasonalSpike(Dictionary<DateTime, float> spikes, DateTime targetDate)
+        {
+            if (spikes.Count == 0) return null;
+
+            // Find the closest dates
+            var before = spikes.Keys.Where(d => d < targetDate).OrderByDescending(d => d).FirstOrDefault();
+            var after = spikes.Keys.Where(d => d > targetDate).OrderBy(d => d).FirstOrDefault();
+
+            if (before != default && after != default)
+            {
+                // Linear interpolation
+                var totalDays = (after - before).TotalDays;
+                var targetDays = (targetDate - before).TotalDays;
+                var ratio = totalDays > 0 ? targetDays / totalDays : 0;
+
+                return spikes[before] + (float)(ratio * (spikes[after] - spikes[before]));
+            }
+            else if (before != default)
+            {
+                return spikes[before];
+            }
+            else if (after != default)
+            {
+                return spikes[after];
+            }
+
+            return null;
         }
         public ForecastResult ForecastDemand(IEnumerable<DemandData> data, string productId, int horizon = 7)
         {
@@ -1380,27 +1479,34 @@ namespace MLINTERNSHIP
             if (productData.Count < 21)
                 throw new ArgumentException($"Insufficient data for product {productId}.");
 
-            // Step 1: Get Prophet seasonal spikes for the historical data
-            var prophetSpikes = DetectSeasonalSpikesWithProphet(productData);
+            Console.WriteLine($"\nProcessing {productId} with {productData.Count} data points");
 
-            // Step 2: Apply Prophet spikes to the data
+            // Step 1: Get both historical and future Prophet seasonal patterns in one call
+            var (historicalSpikes, futureSpikes) = DetectSeasonalSpikesWithProphetEnhanced(productData, horizon);
+
+            // Step 2: Apply Prophet spikes to historical data
             for (int i = 0; i < productData.Count; i++)
             {
-                if (prophetSpikes.ContainsKey(productData[i].Date))
+                if (historicalSpikes.ContainsKey(productData[i].Date))
                 {
-                    productData[i].ProphetSeasonalSpike = prophetSpikes[productData[i].Date];
+                    productData[i].ProphetSeasonalSpike = historicalSpikes[productData[i].Date];
+                }
+                else
+                {
+                    var nearbySpike = GetInterpolatedSeasonalSpike(historicalSpikes, productData[i].Date);
+                    productData[i].ProphetSeasonalSpike = nearbySpike ?? CalculateFallbackSeasonality(productData[i].Date);
                 }
             }
 
             // Step 3: Preprocess data with transformation
             var (processedData, transformationInfo) = EnhancedPreprocessDataWithTransformation(productData);
 
-            // Step 4: Split data for training and validation
+            // Step 4: Prepare training/validation split
             var trainRatio = Math.Max(0.7, Math.Min(0.9, 1.0 - (14.0 / processedData.Count)));
             var trainSize = (int)(processedData.Count * trainRatio);
             var validationSize = processedData.Count - trainSize;
 
-            Console.WriteLine($"Product {productId}: Training on {trainSize} samples, validating on {validationSize} samples");
+            Console.WriteLine($"  Training: {trainSize} samples, Validation: {validationSize} samples");
 
             // Step 5: Prepare XGBoost data with Prophet seasonal features
             var xgBoostTrainData = PrepareEnhancedXgBoostDataWithProphetSpikes(processedData, 21, trainSize - 21);
@@ -1408,25 +1514,25 @@ namespace MLINTERNSHIP
 
             if (xgBoostTrainData.Count == 0 || xgBoostValidationData.Count == 0)
             {
-                Console.WriteLine($"Warning: Insufficient data for XGBoost training for product {productId}");
+                Console.WriteLine($"  Warning: Insufficient XGBoost training data");
                 return CreateFallbackForecast(productId, processedData, horizon);
             }
 
-            // Step 6: Optimize hyperparameters and train XGBoost
-            var optimalParams = this.RunProperBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 50);
+            // Step 6: Optimize hyperparameters and train
+            Console.WriteLine($"  Starting Bayesian optimization...");
+            var optimalParams = this.RunProperBayesianOptimization(xgBoostTrainData, xgBoostValidationData, 30); // Reduced iterations for speed
+
+            Console.WriteLine($"  Training final XGBoost model...");
             var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
 
-            // Step 7: Generate future Prophet seasonal spikes for forecasting
-            var futureSpikes = GenerateFutureProphetSpikes(processedData, horizon);
-
-            // Step 8: Create future features with Prophet seasonal information
+            // Step 7: Create future features using Prophet seasonal patterns
             var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, futureSpikes, horizon);
 
-            // Step 9: Make predictions
+            // Step 8: Make predictions
             var validationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
             var futurePredictions = PredictWithXgBoost(xgBoostModel, xgBoostFutureData);
 
-            // Step 10: Evaluate model performance
+            // Step 9: Evaluate performance
             var actualValidationArray = new float[validationSize];
             for (int i = 0; i < validationSize; i++)
             {
@@ -1437,9 +1543,6 @@ namespace MLINTERNSHIP
             var actualValidationSpan = actualValidationArray.AsSpan();
             var xgBoostSMAPE = CalculateSMAPE(validationPredictionsSpan, actualValidationSpan);
 
-            Console.WriteLine($"XGBoost with Prophet Seasonal Features Performance for {productId}:");
-            Console.WriteLine($"  SMAPE: {xgBoostSMAPE:F4}%");
-
             var trainDataArray = new float[trainSize];
             for (int i = 0; i < trainSize; i++)
             {
@@ -1447,70 +1550,27 @@ namespace MLINTERNSHIP
             }
             var trainDataSpan = trainDataArray.AsSpan();
 
-            var metrics = CalculateComprehensiveMetrics(
-                actualValidationSpan,
-                validationPredictionsSpan,
-                trainDataSpan
-            );
+            var metrics = CalculateComprehensiveMetrics(actualValidationSpan, validationPredictionsSpan, trainDataSpan);
 
-            if (!ValidateDataQuality(productData))
-            {
-                Console.WriteLine($"Unstable data pattern for {productId}, using fallback");
-                return CreateFallbackForecast(productId, productData, horizon);
-            }
-
-            // Step 11: Inverse transform predictions and calculate confidence intervals
+            // Step 10: Post-process predictions
             var revertedPredictions = InverseTransformation(futurePredictions, transformationInfo);
             var revertedConfidenceIntervals = CalculateConfidenceIntervals(revertedPredictions, metrics.RMSE);
+
+            Console.WriteLine($"  Final SMAPE: {xgBoostSMAPE:F2}%");
 
             return new ForecastResult
             {
                 ProductId = productId,
                 Predictions = revertedPredictions,
+                ProphetPredictions = revertedPredictions, // Using same predictions as we integrated Prophet features
                 XgBoostPredictions = revertedPredictions,
                 Metrics = metrics,
                 OptimalHyperparameters = optimalParams,
                 ConfidenceIntervals = revertedConfidenceIntervals,
-                SelectedModel = "XGBoost with Prophet Seasonal Features",
-                XgBoostSMAPE = xgBoostSMAPE
+                SelectedModel = "XGBoost with Integrated Prophet Seasonality",
+                XgBoostSMAPE = xgBoostSMAPE,
+                ProphetSMAPE = xgBoostSMAPE // Same model now
             };
-        }
-        private static List<float> GenerateFutureProphetSpikes(List<DemandData> historicalData, int horizon)
-        {
-            var lastDate = historicalData.Last().Date;
-            var futureSpikes = new List<float>();
-
-            // Simple seasonal pattern fallback based on historical averages
-            var weeklyPattern = new float[7];
-            var monthlyPattern = new float[12];
-
-            // Calculate weekly seasonality
-            for (int dow = 0; dow < 7; dow++)
-            {
-                var dayData = historicalData.Where(d => (int)d.Date.DayOfWeek == dow).ToList();
-                weeklyPattern[dow] = dayData.Any() ? dayData.Average(d => d.ProphetSeasonalSpike) : 1.0f;
-            }
-
-            // Calculate monthly seasonality
-            for (int month = 1; month <= 12; month++)
-            {
-                var monthData = historicalData.Where(d => d.Date.Month == month).ToList();
-                monthlyPattern[month - 1] = monthData.Any() ? monthData.Average(d => d.ProphetSeasonalSpike) : 1.0f;
-            }
-
-            // Generate future seasonal spikes
-            for (int i = 1; i <= horizon; i++)
-            {
-                var futureDate = lastDate.AddDays(i);
-                var weeklySpike = weeklyPattern[(int)futureDate.DayOfWeek];
-                var monthlySpike = monthlyPattern[futureDate.Month - 1];
-
-                // Combine weekly and monthly seasonality
-                var combinedSpike = (weeklySpike + monthlySpike) / 2.0f;
-                futureSpikes.Add(Math.Max(0.5f, Math.Min(3.0f, combinedSpike)));
-            }
-
-            return futureSpikes;
         }
         private static (List<DemandData> processedData, TransformationInfo transformationInfo) EnhancedPreprocessDataWithTransformation(List<DemandData> data)
         {
@@ -1693,82 +1753,6 @@ namespace MLINTERNSHIP
             }
             return forecasts;
         }
-        private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostData(List<DemandData> fullData, int startIndex, int count, List<float> prophetForecasts)
-        {
-            var xgBoostData = new List<EnhancedXgBoostInput>();
-
-            for (int i = startIndex; i < startIndex + count && i < fullData.Count; i++)
-            {
-                if (i < 21) continue;
-
-                var demand = fullData[i].Demand;
-
-                // Get recent demands as span for efficient calculations
-                var recentDemandsArray = new float[21];
-                for (int j = 0; j < 21; j++)
-                {
-                    recentDemandsArray[j] = fullData[i - 21 + j].Demand;
-                }
-                var recentDemandsSpan = recentDemandsArray.AsSpan();
-
-                // Use span-based calculations
-                var movingAvg3 = CalculateMovingAverage(recentDemandsSpan, 3);
-                var movingAvg7 = CalculateMovingAverage(recentDemandsSpan, 7);
-                var movingAvg14 = CalculateMovingAverage(recentDemandsSpan, 14);
-                var movingAvg21 = CalculateMovingAverage(recentDemandsSpan, 21);
-
-                var exponentialSmoothing = CalculateExponentialSmoothing(recentDemandsSpan, 0.3f);
-                var volatility = CalculateStandardDeviation(recentDemandsSpan.Slice(14)); // Last 7 days
-
-                var trend = recentDemandsSpan.Length >= 7 ?
-                    (CalculateMovingAverage(recentDemandsSpan.Slice(18), 3) - CalculateMovingAverage(recentDemandsSpan.Slice(0, 3), 3)) / 18f : 0;
-
-                // CHANGE 10: Always use Prophet forecast (it's now required)
-                var prophetForecast = (i - startIndex < prophetForecasts.Count) ?
-                    prophetForecasts[i - startIndex] : 0;
-
-                var rollingStd7 = CalculateStandardDeviation(recentDemandsSpan.Slice(14));
-                var movingAvgDiff = movingAvg7 - movingAvg21;
-                var lag1Diff = demand - fullData[i - 1].Demand;
-                var lag7Diff = i >= 7 ? demand - fullData[i - 7].Demand : 0;
-
-                xgBoostData.Add(new EnhancedXgBoostInput
-                {
-                    Lag1 = fullData[i - 1].Demand,
-                    Lag2 = fullData[i - 2].Demand,
-                    Lag3 = fullData[i - 3].Demand,
-                    Lag7 = i >= 7 ? fullData[i - 7].Demand : fullData[i - 1].Demand,
-                    MovingAvg3 = movingAvg3,
-                    MovingAvg7 = movingAvg7,
-                    MovingAvg14 = movingAvg14,
-                    MovingAvg21 = movingAvg21,
-                    ExponentialSmoothing = exponentialSmoothing,
-                    Volatility = volatility,
-                    Trend = trend,
-                    DayOfWeek = fullData[i].DayOfWeek,
-                    Month = fullData[i].Month,
-                    Quarter = fullData[i].Quarter,
-                    DayOfYear = fullData[i].DayOfYear,
-                    WeekOfYear = fullData[i].WeekOfYear,
-                    Price = fullData[i].Price,
-                    PriceChange = fullData[i].PriceChange,
-                    StockLevels = fullData[i].StockLevels,
-                    StockRatio = fullData[i].StockRatio,
-                    ProcurementLeadTime = fullData[i].ProcurementLeadTime,
-                    ManufacturingLeadTime = fullData[i].ManufacturingLeadTime,
-                    ProphetForecast = prophetForecast, // PROPHET AS FEATURE!
-                    IsWeekend = fullData[i].DayOfWeek == 0 || fullData[i].DayOfWeek == 6 ? 1 : 0,
-                    IsMonthEnd = fullData[i].Date.Day >= 28 ? 1 : 0,
-                    IsQuarterEnd = fullData[i].Month % 3 == 0 && fullData[i].Date.Day >= 28 ? 1 : 0,
-                    RollingStd7 = rollingStd7,
-                    MovingAvgDiff = movingAvgDiff,
-                    Lag1Diff = lag1Diff,
-                    Lag7Diff = lag7Diff,
-                    Demand = demand
-                });
-            }
-            return xgBoostData;
-        }
         private static float CalculateExponentialSmoothing(ReadOnlySpan<float> data, float alpha)
         {
             if (data.Length == 0) return 0;
@@ -1790,10 +1774,15 @@ namespace MLINTERNSHIP
         {
             float[][] dataTrain = trainData.Select(d => new float[]
             {
-        d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
-        d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
-        d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime, d.ManufacturingLeadTime, d.ProphetForecast,
-        d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd, d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
+                d.Lag1, d.Lag2, d.Lag3, d.Lag7,
+                d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
+                d.ExponentialSmoothing, d.Volatility, d.Trend,
+                d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear, d.WeekOfYear,
+                d.Price, d.PriceChange, d.StockLevels, d.StockRatio,
+                d.ProcurementLeadTime, d.ManufacturingLeadTime,
+                d.ProphetForecast,
+                d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
+                d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
             float[] labelsTrain = trainData.Select(d => d.Demand).ToArray();
 
@@ -1833,8 +1822,15 @@ namespace MLINTERNSHIP
             {
                 var futureDate = lastDate.AddDays(i + 1);
                 var currentDemands = new List<float>(recentDemands);
-                if (i > 0) currentDemands.AddRange(prophetSeasonalSpikes.Take(i)); // Changed parameter name
 
+                // Use Prophet-adjusted predictions for lag features
+                if (i > 0)
+                {
+                    // Apply Prophet seasonality to previous predictions
+                    var adjustedPreviousPredictions = prophetSeasonalSpikes.Take(i)
+                        .Select((spike, idx) => recentDemands.Last() * spike).ToList();
+                    currentDemands.AddRange(adjustedPreviousPredictions);
+                }
                 var movingAvg3 = currentDemands.TakeLast(3).Average();
                 var movingAvg7 = currentDemands.TakeLast(7).Average();
                 var movingAvg14 = currentDemands.TakeLast(14).Average();
@@ -1987,13 +1983,6 @@ namespace MLINTERNSHIP
                 MASE = mase
             };
         }
-        private static bool ValidateDataQuality(List<DemandData> data)
-        {
-            var mean = data.Average(d => d.Demand);
-            var stdDev = Math.Sqrt(data.Select(d => Math.Pow(d.Demand - mean, 2)).Average());
-            return stdDev / mean < 2.0;
-        }
-
         private static float CalculateMovingAverage(ReadOnlySpan<float> data, int windowSize)
         {
             if (data.Length == 0) return 0;
@@ -2008,7 +1997,24 @@ namespace MLINTERNSHIP
 
             return sum / actualWindow;
         }
+        private static float CalculateFallbackSeasonality(DateTime date)
+        {
+            float spike = 1.0f;
 
+            // Weekend effect
+            if (date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday)
+                spike *= 1.2f;
+
+            // Month-end effect  
+            if (date.Day >= 28)
+                spike *= 1.1f;
+
+            // Holiday season effect
+            if (date.Month >= 11)
+                spike *= 1.3f;
+
+            return Math.Max(0.5f, Math.Min(3.0f, spike));
+        }
         private static float CalculateStandardDeviation(ReadOnlySpan<float> values)
         {
             if (values.Length == 0) return 0;
@@ -2080,26 +2086,6 @@ namespace MLINTERNSHIP
 
     }
 
-    public static class Extensions
-    {
-        public static double Variance(this IEnumerable<double> source)
-        {
-            var n = 0;
-            double mean = 0;
-            double m2 = 0;
-
-            foreach (var x in source)
-            {
-                n++;
-                var delta = x - mean;
-                mean += delta / n;
-                var delta2 = x - mean;
-                m2 += delta * delta2;
-            }
-
-            return n > 1 ? m2 / (n - 1) : 0;
-        }
-    }
 
     public class Program
     {
