@@ -1,6 +1,6 @@
 using MLINTERNSHIP;
 
-namespace FrontEndForecasting1.Services
+namespace FrontEndForecasting.Services
 {
     public interface IExportService
     {

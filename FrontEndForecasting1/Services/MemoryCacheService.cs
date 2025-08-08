@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using System.Text.Json;
 
-namespace FrontEndForecasting1.Services
+namespace FrontEndForecasting.Services
 {
     public class MemoryCacheService : ICacheService
     {

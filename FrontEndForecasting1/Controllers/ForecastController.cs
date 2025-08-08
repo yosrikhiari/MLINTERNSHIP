@@ -6,10 +6,11 @@ using System.Threading.Tasks;
 using MLINTERNSHIP;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
-using FrontEndForecasting1.Services;
+using FrontEndForecasting.Services;
 using System.Diagnostics;
+using FrontEndForecasting.Services;
 
-namespace FrontEndForecasting1.Controllers
+namespace FrontEndForecasting.Controllers
 {
     /// <summary>
     /// Controller for handling demand forecasting operations including file upload, prediction, and export functionality.

@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using FrontEndForecasting1.Services;
+using FrontEndForecasting.Services;
 using Prometheus;
 
-namespace FrontEndForecasting1
+namespace FrontEndForecasting
 {
     public class Program
     {

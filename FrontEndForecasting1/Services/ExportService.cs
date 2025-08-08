@@ -4,9 +4,10 @@ using OfficeOpenXml;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using FrontEndForecasting.Services;
 using MLINTERNSHIP;
 
-namespace FrontEndForecasting1.Services
+namespace FrontEndForecasting.Services
 {
     public class ExportService : IExportService
     {
@@ -15,7 +16,8 @@ namespace FrontEndForecasting1.Services
         public ExportService(ILogger<ExportService> logger)
         {
             _logger = logger;
-            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+            ExcelPackage.License.SetNonCommercialPersonal("Yosri");
+
         }
 
         public async Task<byte[]> ExportToCsvAsync(List<EnhancedForecastResult> results)
@@ -45,12 +47,12 @@ namespace FrontEndForecasting1.Services
                 // Write data
                 foreach (var result in results)
                 {
-                    var useAggregated = result.AggregatedPredictions?.Count > 0 && 
+                    var useAggregated = result.AggregatedPredictions?.Count > 0 &&
                                       result.Request?.Unit != ForecastUnit.Days;
 
                     var predictions = useAggregated ? result.AggregatedPredictions : result.Predictions;
                     var confidenceIntervals = useAggregated ? result.AggregatedConfidenceIntervals : result.ConfidenceIntervals;
-                    var labels = useAggregated ? result.AggregatedLabels : 
+                    var labels = useAggregated ? result.AggregatedLabels :
                                 Enumerable.Range(1, result.Predictions.Count).Select(i => $"Day {i}").ToList();
 
                     for (int i = 0; i < predictions.Count; i++)
@@ -63,6 +65,7 @@ namespace FrontEndForecasting1.Services
                         csv.WriteField((confidenceIntervals?.Count > i ? confidenceIntervals[i] : 0).ToString("F2"));
                         csv.WriteField(result.ProphetPredictions?.Count > i ? result.ProphetPredictions[i].ToString("F2") : "");
                         csv.WriteField(result.XgBoostPredictions?.Count > i ? result.XgBoostPredictions[i].ToString("F2") : "");
+                        csv.WriteField(result.Metrics?.SMAPE.ToString("F2") ?? "0.00");
                         csv.WriteField(result.Metrics?.MAPE.ToString("F2") ?? "0.00");
                         csv.WriteField(result.Metrics?.R2.ToString("F3") ?? "0.000");
                         csv.WriteField(result.Metrics?.RMSE.ToString("F2") ?? "0.00");
@@ -91,8 +94,8 @@ namespace FrontEndForecasting1.Services
                 // Add headers
                 var headers = new[]
                 {
-                    "Product ID", "Selected Model", "Forecast Period", "Day/Period", 
-                    "Forecast Value", "Confidence Interval", "Prophet Forecast", 
+                    "Product ID", "Selected Model", "Forecast Period", "Day/Period",
+                    "Forecast Value", "Confidence Interval", "Prophet Forecast",
                     "XGBoost Forecast", "SMAPE", "MAPE", "R²", "RMSE", "MAE"
                 };
 
@@ -106,12 +109,12 @@ namespace FrontEndForecasting1.Services
                 int row = 2;
                 foreach (var result in results)
                 {
-                    var useAggregated = result.AggregatedPredictions?.Count > 0 && 
+                    var useAggregated = result.AggregatedPredictions?.Count > 0 &&
                                       result.Request?.Unit != ForecastUnit.Days;
 
                     var predictions = useAggregated ? result.AggregatedPredictions : result.Predictions;
                     var confidenceIntervals = useAggregated ? result.AggregatedConfidenceIntervals : result.ConfidenceIntervals;
-                    var labels = useAggregated ? result.AggregatedLabels : 
+                    var labels = useAggregated ? result.AggregatedLabels :
                                 Enumerable.Range(1, result.Predictions.Count).Select(i => $"Day {i}").ToList();
 
                     for (int i = 0; i < predictions.Count; i++)
@@ -124,6 +127,7 @@ namespace FrontEndForecasting1.Services
                         worksheet.Cells[row, 6].Value = confidenceIntervals?.Count > i ? confidenceIntervals[i] : 0;
                         worksheet.Cells[row, 7].Value = result.ProphetPredictions?.Count > i ? result.ProphetPredictions[i] : null;
                         worksheet.Cells[row, 8].Value = result.XgBoostPredictions?.Count > i ? result.XgBoostPredictions[i] : null;
+                        worksheet.Cells[row, 9].Value = result.Metrics?.SMAPE ?? 0;
                         worksheet.Cells[row, 10].Value = result.Metrics?.MAPE ?? 0;
                         worksheet.Cells[row, 11].Value = result.Metrics?.R2 ?? 0;
                         worksheet.Cells[row, 12].Value = result.Metrics?.RMSE ?? 0;

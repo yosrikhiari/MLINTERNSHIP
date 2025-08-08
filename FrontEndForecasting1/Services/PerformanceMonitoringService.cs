@@ -1,7 +1,7 @@
 using Prometheus;
 using System.Diagnostics;
 
-namespace FrontEndForecasting1.Services
+namespace FrontEndForecasting.Services
 {
     public interface IPerformanceMonitoringService
     {

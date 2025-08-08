@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 	<EnableDefaultScopedCssItems>true</EnableDefaultScopedCssItems>
+	  <StartupObject>FrontEndForecasting.Program</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,9 +16,9 @@
 	  <PackageReference Include="LG.Microsoft.ML.FastTree" Version="1.6.0.4" />
 	  <PackageReference Include="libxgboost-2.0.3-win-x64" Version="1.0.0" />
 	  <PackageReference Include="LumenWorksCsvReader" Version="4.0.0" />
-	  <PackageReference Include="Microsoft.ML.TimeSeries" Version="4.0.2" />
+	  <PackageReference Include="CsvHelper" Version="33.1.0" /> <PackageReference Include="Microsoft.ML.TimeSeries" Version="4.0.2" />
 	  <PackageReference Include="Microsoft.ML" Version="4.0.2" />
-	  <PackageReference Include="CsvHelper" Version="33.1.0" />
+	 
 	  <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
 	  <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
 	  <PackageReference Include="XGBoostSharp" Version="0.5.2" />
@@ -30,12 +31,12 @@
     <PackageReference Include="FluentAssertions" Version="6.12.0" />
     
     <!-- Caching Packages -->
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.0" />
     
     <!-- Export Packages -->
-    <PackageReference Include="EPPlus" Version="7.0.8" />
-    <PackageReference Include="ClosedXML" Version="0.102.2" />
+    <PackageReference Include="EPPlus" Version="8.0.8" />
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
     
     <!-- Performance Monitoring -->
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />

@@ -2,7 +2,7 @@ using System.Diagnostics;
 using FrontEndForecasting1.Models;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FrontEndForecasting1.Controllers
+namespace FrontEndForecasting.Controllers
 {
     public class HomeController : Controller
     {
