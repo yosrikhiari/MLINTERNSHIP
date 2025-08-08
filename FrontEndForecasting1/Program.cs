@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using FrontEndForecasting1.Services;
+using Prometheus;
 
 namespace FrontEndForecasting1
 {
@@ -18,6 +20,19 @@ namespace FrontEndForecasting1
                     // Add global anti-forgery validation
                     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
                 });
+
+                // Add caching services
+                builder.Services.AddMemoryCache();
+                builder.Services.AddScoped<ICacheService, MemoryCacheService>();
+
+                // Add export services
+                builder.Services.AddScoped<IExportService, ExportService>();
+
+                // Add performance monitoring services
+                builder.Services.AddScoped<IPerformanceMonitoringService, PerformanceMonitoringService>();
+
+                // Add health checks
+                builder.Services.AddHealthChecks();
 
                 builder.Services.AddSession(options =>
                 {
@@ -59,6 +74,13 @@ namespace FrontEndForecasting1
                 app.UseRouting();
                 app.UseSession();
                 app.UseAuthorization();
+
+                // Add Prometheus metrics endpoint
+                app.UseMetricServer();
+                app.UseHttpMetrics();
+
+                // Add health checks endpoint
+                app.MapHealthChecks("/health");
 
                 // Configure routes
                 app.MapControllerRoute(

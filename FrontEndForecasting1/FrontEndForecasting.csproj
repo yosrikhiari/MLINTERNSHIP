@@ -8,9 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-	  <None Update="scripts\prophet_forecast.py">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
     <ProjectReference Include="..\MLINTERNSHIP\MLINTERNSHIP.csproj" />
     <PackageReference Include="Chart.js" Version="3.7.1" />
 	  <PackageReference Include="Csv" Version="2.0.170" />
@@ -24,6 +21,27 @@
 	  <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
 	  <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
 	  <PackageReference Include="XGBoostSharp" Version="0.5.2" />
+    
+    <!-- Testing Packages -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.6" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6" />
+    <PackageReference Include="Moq" Version="4.20.70" />
+    <PackageReference Include="FluentAssertions" Version="6.12.0" />
+    
+    <!-- Caching Packages -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.0" />
+    
+    <!-- Export Packages -->
+    <PackageReference Include="EPPlus" Version="7.0.8" />
+    <PackageReference Include="ClosedXML" Version="0.102.2" />
+    
+    <!-- Performance Monitoring -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="prometheus-net" Version="8.2.1" />
+    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
 
   </ItemGroup>
 

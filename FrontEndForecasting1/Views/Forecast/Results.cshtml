@@ -94,9 +94,16 @@
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h2><i class="fas fa-chart-line text-success me-2"></i>Demand Forecast Dashboard</h2>
                 <div>
-                    <button class="btn btn-outline-secondary me-2" onclick="exportResults()">
-                        <i class="fas fa-download me-1"></i>Export Results
-                    </button>
+                    <div class="btn-group me-2" role="group">
+                        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-download me-1"></i>Export Results
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="exportResults('csv')"><i class="fas fa-file-csv me-2"></i>Export as CSV</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportResults('excel')"><i class="fas fa-file-excel me-2"></i>Export as Excel</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportResults('json')"><i class="fas fa-file-code me-2"></i>Export as JSON</a></li>
+                        </ul>
+                    </div>
                     <a href="@Url.Action("NewUpload", "Forecast")" class="btn btn-primary">
                         <i class="fas fa-upload me-1"></i>Upload New File
                     </a>
@@ -171,7 +178,7 @@
                                 <text>aggregatedLabels: null,</text>
                             }
                                     request: {
-                                        unit: '@(forecastUnit ?? "Days")',
+                                        unit: '@(result.Request?.Unit.ToString() ?? "Days")',
                                         quantity: @(result.Request?.Quantity ?? 7),
                                         displayText: '@(result.Request?.GetDisplayText() ?? "7 days")'
                                     },
@@ -195,7 +202,6 @@
                     }
                     ];
 
-                    // Update chart creation to handle different time units
                     function createForecastChart() {
                         const ctx = document.getElementById('forecastChart').getContext('2d');
                         if (currentChart) currentChart.destroy();
@@ -206,12 +212,17 @@
                             '#1abc9c', '#e67e22', '#34495e', '#f1c40f', '#e91e63'
                         ];
 
-                        // Use aggregated data if available, otherwise use daily predictions
+                        // Determine chart data and labels based on aggregation
                         const datasets = forecastData.map((item, index) => {
-                            const useAggregated = item.aggregatedPredictions && item.aggregatedPredictions.length > 0;
+                            // Use aggregated data if available and the forecast unit is not Days
+                            const useAggregated = item.aggregatedPredictions &&
+                                                item.aggregatedPredictions.length > 0 &&
+                                                item.request &&
+                                                item.request.unit !== 'Days';
+
                             const data = useAggregated ? item.aggregatedPredictions : item.predictions;
-                            const labels = useAggregated ? item.aggregatedLabels :
-                                          Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
+                            const chartLabels = useAggregated ? item.aggregatedLabels :
+                                               Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
 
                             return {
                                 label: `${item.productId} (${item.selectedModel})`,
@@ -228,10 +239,62 @@
                             };
                         });
 
-                        // Dynamic labels based on first item
-                        const chartLabels = forecastData.length > 0 && forecastData[0].aggregatedLabels && forecastData[0].aggregatedLabels.length > 0
-                            ? forecastData[0].aggregatedLabels
-                            : Array.from({length: horizon}, (_, i) => `Day ${i + 1}`);
+                        // Determine chart labels based on the first item's configuration
+                        let chartLabels = [];
+                        let xAxisTitle = 'Forecast Horizon';
+
+                        if (forecastData.length > 0) {
+                            const firstItem = forecastData[0];
+                            const useAggregated = firstItem.aggregatedPredictions &&
+                                                firstItem.aggregatedPredictions.length > 0 &&
+                                                firstItem.request &&
+                                                firstItem.request.unit !== 'Days';
+
+                            if (useAggregated) {
+                                chartLabels = firstItem.aggregatedLabels || [];
+
+                                // Set appropriate x-axis title based on unit
+                                switch (firstItem.request.unit) {
+                                    case 'Weeks':
+                                        xAxisTitle = `Weekly Forecast (${firstItem.request.quantity} weeks)`;
+                                        break;
+                                    case 'Months':
+                                        xAxisTitle = `Monthly Forecast (${firstItem.request.quantity} months)`;
+                                        break;
+                                    default:
+                                        xAxisTitle = `Forecast Horizon (${firstItem.request.displayText})`;
+                                }
+                            } else {
+                                // For daily data or when no aggregation is available
+                                chartLabels = Array.from({length: firstItem.predictions.length}, (_, i) => `Day ${i + 1}`);
+                                xAxisTitle = `Daily Forecast (${firstItem.request ? firstItem.request.displayText : horizonDisplay})`;
+                            }
+                        } else {
+                            // Fallback labels
+                            chartLabels = Array.from({length: horizon}, (_, i) => `Day ${i + 1}`);
+                            xAxisTitle = `Forecast Horizon (${horizonDisplay})`;
+                        }
+
+                        // Determine chart title based on forecast unit
+                        let chartTitle = 'Demand Forecast';
+                        if (forecastData.length > 0 && forecastData[0].request) {
+                            const unit = forecastData[0].request.unit;
+                            const quantity = forecastData[0].request.quantity;
+
+                            switch (unit) {
+                                case 'Days':
+                                    chartTitle = `Daily Demand Forecast - ${quantity} Day${quantity > 1 ? 's' : ''}`;
+                                    break;
+                                case 'Weeks':
+                                    chartTitle = `Weekly Demand Forecast - ${quantity} Week${quantity > 1 ? 's' : ''}`;
+                                    break;
+                                case 'Months':
+                                    chartTitle = `Monthly Demand Forecast - ${quantity} Month${quantity > 1 ? 's' : ''}`;
+                                    break;
+                                default:
+                                    chartTitle = `Demand Forecast - ${horizonDisplay}`;
+                            }
+                        }
 
                         currentChart = new Chart(ctx, {
                             type: chartType,
@@ -245,37 +308,99 @@
                                 scales: {
                                     y: {
                                         beginAtZero: true,
-                                        title: { display: true, text: 'Forecast Value' }
+                                        title: {
+                                            display: true,
+                                            text: 'Forecast Value (Units)',
+                                            font: {
+                                                size: 12,
+                                                weight: 'bold'
+                                            }
+                                        },
+                                        grid: {
+                                            color: 'rgba(0,0,0,0.1)'
+                                        }
                                     },
                                     x: {
                                         title: {
                                             display: true,
-                                            text: `Forecast Horizon (${horizonDisplay})`
+                                            text: xAxisTitle,
+                                            font: {
+                                                size: 12,
+                                                weight: 'bold'
+                                            }
+                                        },
+                                        grid: {
+                                            color: 'rgba(0,0,0,0.1)'
+                                        },
+                                        ticks: {
+                                            maxRotation: 45,
+                                            minRotation: 0
                                         }
                                     }
                                 },
                                 plugins: {
-                                    legend: { position: 'top' },
+                                    legend: {
+                                        position: 'top',
+                                        labels: {
+                                            usePointStyle: true,
+                                            padding: 20
+                                        }
+                                    },
                                     title: {
                                         display: true,
-                                        text: `Demand Forecast - ${horizonDisplay}`
+                                        text: chartTitle,
+                                        font: {
+                                            size: 16,
+                                            weight: 'bold'
+                                        },
+                                        padding: {
+                                            top: 10,
+                                            bottom: 30
+                                        }
                                     },
                                     tooltip: {
                                         callbacks: {
+                                            title: function(context) {
+                                                return context[0].label;
+                                            },
+                                            label: function(context) {
+                                                const product = forecastData[context.datasetIndex];
+                                                const value = context.parsed.y;
+                                                return `${context.dataset.label}: ${value.toFixed(2)} units`;
+                                            },
                                             afterLabel: function(context) {
                                                 const product = forecastData[context.datasetIndex];
-                                                const useAggregated = product.aggregatedConfidenceIntervals && product.aggregatedConfidenceIntervals.length > 0;
-                                                const confidence = useAggregated
-                                                    ? product.aggregatedConfidenceIntervals[context.dataIndex]
-                                                    : product.confidenceIntervals[context.dataIndex];
-                                                return `Confidence: ±${confidence.toFixed(2)}`;
+                                                const dataIndex = context.dataIndex;
+
+                                                // Get confidence interval
+                                                let confidence = 0;
+                                                if (product.aggregatedConfidenceIntervals &&
+                                                    product.aggregatedConfidenceIntervals.length > dataIndex &&
+                                                    product.request && product.request.unit !== 'Days') {
+                                                    confidence = product.aggregatedConfidenceIntervals[dataIndex];
+                                                } else if (product.confidenceIntervals &&
+                                                         product.confidenceIntervals.length > dataIndex) {
+                                                    confidence = product.confidenceIntervals[dataIndex];
+                                                }
+
+                                                return confidence > 0 ? `Confidence: ±${confidence.toFixed(2)}` : '';
                                             }
-                                        }
+                                        },
+                                        backgroundColor: 'rgba(0,0,0,0.8)',
+                                        titleColor: 'white',
+                                        bodyColor: 'white',
+                                        borderColor: 'rgba(0,0,0,0.1)',
+                                        borderWidth: 1
                                     }
+                                },
+                                interaction: {
+                                    intersect: false,
+                                    mode: 'index'
                                 }
                             }
                         });
                     }
+
 
                     // Update the forecast horizon display
                     $(document).ready(function() {
@@ -287,15 +412,15 @@
                             }
                         }
 
-                        if (typeof forecastData !== 'undefined' && forecastData.length > 0) {
-                            console.log('Initializing dashboard with', forecastData.length, 'products');
-                            updateSummaryCards();
-                            populateTables();
-                            createCharts();
-                            initializeDataTables();
-                        } else {
-                            console.error('No forecast data available');
-                        }
+                    if (typeof forecastData !== 'undefined' && forecastData.length > 0) {
+                         console.log('Initializing dashboard with', forecastData.length, 'products');
+                         updateSummaryCards();
+                         populateTables();
+                         createForecastChart(); // This will now properly handle time units
+                         initializeDataTables();
+                     } else {
+                         console.error('No forecast data available');
+                     }
                     });
                 </script>
                 <div class="col-md-3">
@@ -474,12 +599,49 @@
                                 prophetSMAPE: @result.ProphetSMAPE,
                                 xgBoostSMAPE: @result.XgBoostSMAPE,
                                 selectedModelSMAPE: @(result.SelectedModel == "Prophet" ? result.ProphetSMAPE : result.XgBoostSMAPE),
+                                @if (result.AggregatedPredictions != null)
+                                {
+                                    <text>aggregatedPredictions: @Html.Raw(Json.Serialize(result.AggregatedPredictions)),</text>
+                                }
+                                else
+                                {
+                                    <text>aggregatedPredictions: null,</text>
+                                }
+                                @if (result.AggregatedConfidenceIntervals != null)
+                                {
+                                    <text>aggregatedConfidenceIntervals: @Html.Raw(Json.Serialize(result.AggregatedConfidenceIntervals)),</text>
+                                }
+                                else
+                                {
+                                    <text>aggregatedConfidenceIntervals: null,</text>
+                                }
+                                @if (result.AggregatedLabels != null)
+                                {
+                                    <text>aggregatedLabels: @Html.Raw(Json.Serialize(result.AggregatedLabels)),</text>
+                                }
+                                else
+                                {
+                                    <text>aggregatedLabels: null,</text>
+                                }
+                                request: {
+                                    unit: '@(result.Request?.Unit.ToString() ?? "Days")',
+                                    quantity: @(result.Request?.Quantity ?? 7),
+                                    displayText: '@(result.Request?.GetDisplayText() ?? "7 days")'
+                                },
+                                @if (result.ForecastDates != null)
+                                {
+                                    <text>forecastDates: @Html.Raw(Json.Serialize(result.ForecastDates.Select(d => d.ToString("yyyy-MM-dd")))),</text>
+                                }
+                                else
+                                {
+                                    <text>forecastDates: [],</text>
+                                }
                                 metrics: {
-                                    mape: @result.Metrics.MAPE,
-                                    rmse: @result.Metrics.RMSE,
-                                    mae: @result.Metrics.MAE,
-                                    r2: @result.Metrics.R2,
-                                    smape: @result.Metrics.SMAPE
+                                    mape: @(result.Metrics?.MAPE ?? 0),
+                                    rmse: @(result.Metrics?.RMSE ?? 0),
+                                    mae: @(result.Metrics?.MAE ?? 0),
+                                    r2: @(result.Metrics?.R2 ?? 0),
+                                    smape: @(result.Metrics?.SMAPE ?? 0)
                                 }
                             },
                 </text>
@@ -500,6 +662,9 @@
 
             function updateSummaryCards() {
                 const totalProducts = forecastData.length;
+
+                if (totalProducts === 0) return;
+
                 const avgSmape = (forecastData.reduce((sum, item) => sum + item.selectedModelSMAPE, 0) / totalProducts).toFixed(2);
                 const modelCounts = {};
                 forecastData.forEach(item => {
@@ -508,7 +673,23 @@
                 const bestModel = Object.keys(modelCounts).reduce((a, b) => modelCounts[a] > modelCounts[b] ? a : b);
 
                 document.getElementById('totalProducts').textContent = totalProducts;
-                document.getElementById('forecastHorizon').textContent = horizon;
+
+                // Update forecast horizon display with proper unit information
+                const forecastHorizonElement = document.getElementById('forecastHorizon');
+                if (forecastData[0] && forecastData[0].request) {
+                    const request = forecastData[0].request;
+                    forecastHorizonElement.textContent = `${request.quantity} ${request.unit}`;
+
+                    // Update the small text below
+                    const forecastHorizonParent = forecastHorizonElement.closest('.card-body');
+                    const smallText = forecastHorizonParent.querySelector('small');
+                    if (smallText) {
+                        smallText.textContent = request.displayText;
+                    }
+                } else {
+                    forecastHorizonElement.textContent = horizon;
+                }
+
                 document.getElementById('avgSmape').textContent = avgSmape + '%';
                 document.getElementById('bestModel').textContent = bestModel;
             }
@@ -518,31 +699,40 @@
                 populateDetailTable();
             }
 
-            function populateSummaryTable() {
+                    function populateSummaryTable() {
                 const tbody = document.getElementById('summaryTableBody');
-                        if (!tbody) {
-                console.error('Summary table body not found');
-                return;
-            }
+                if (!tbody) {
+                    console.error('Summary table body not found');
+                    return;
+                }
 
-            if (!forecastData || forecastData.length === 0) {
-                console.error('No forecast data available');
-                tbody.innerHTML = '<tr><td colspan="7">No data available</td></tr>';
-                return;
+                if (!forecastData || forecastData.length === 0) {
+                    console.error('No forecast data available');
+                    tbody.innerHTML = '<tr><td colspan="7">No data available</td></tr>';
+                    return;
+                }
 
-            }
                 tbody.innerHTML = '';
 
                 forecastData.forEach(item => {
-                    // Use aggregated data for summary if available
-                    const useAggregated = item.aggregatedPredictions && item.aggregatedPredictions.length > 0;
-                    const predictions = useAggregated ? item.aggregatedPredictions : item.predictions;
+                    // Use aggregated data for summary if available and not daily
+                    const useAggregated = item.aggregatedPredictions &&
+                                        item.aggregatedPredictions.length > 0 &&
+                                        item.request &&
+                                        item.request.unit !== 'Days';
 
+                    const predictions = useAggregated ? item.aggregatedPredictions : item.predictions;
                     const avgForecast = (predictions.reduce((a, b) => a + b, 0) / predictions.length).toFixed(2);
                     const minForecast = Math.min(...predictions).toFixed(2);
                     const maxForecast = Math.max(...predictions).toFixed(2);
                     const range = `${minForecast} - ${maxForecast}`;
                     const smapeBadge = getPerformanceBadge(item.selectedModelSMAPE);
+
+                    // Determine unit display
+                    let unitDisplay = '7 days'; // default
+                    if (item.request && item.request.displayText) {
+                        unitDisplay = item.request.displayText;
+                    }
 
                     const row = `
                         <tr>
@@ -555,7 +745,7 @@
                                 <small>
                                     MAPE: ${item.metrics.mape.toFixed(2)}%<br>
                                     R²: ${item.metrics.r2.toFixed(3)}<br>
-                      Period: ${item.request && item.request.displayText ? item.request.displayText : '7 days'}
+                                    Period: ${unitDisplay}
                                 </small>
                             </td>
                             <td>
@@ -567,14 +757,6 @@
                     `;
                     tbody.innerHTML += row;
                 });
-                forecastData.forEach(item => {
-                if (!item.request) {
-                    console.log('Item with missing request:', item);
-                }
-                if (!item.metrics) {
-                    console.log('Item with missing metrics:', item);
-                }
-            });
             }
 
             function populateDetailTable() {
@@ -582,14 +764,19 @@
                 tbody.innerHTML = '';
 
                 forecastData.forEach(item => {
-                    // Use aggregated data if available
-                    const useAggregated = item.aggregatedPredictions && item.aggregatedPredictions.length > 0;
+                    // Use aggregated data if available and not daily
+                    const useAggregated = item.aggregatedPredictions &&
+                                        item.aggregatedPredictions.length > 0 &&
+                                        item.request &&
+                                        item.request.unit !== 'Days';
+
                     const predictions = useAggregated ? item.aggregatedPredictions : item.predictions;
                     const confidenceIntervals = useAggregated ? item.aggregatedConfidenceIntervals : item.confidenceIntervals;
-                    const labels = useAggregated ? item.aggregatedLabels : Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
+                    const labels = useAggregated ? item.aggregatedLabels :
+                                  Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
 
                     predictions.forEach((forecast, index) => {
-                        const confidence = confidenceIntervals[index];
+                        const confidence = confidenceIntervals[index] || 0;
                         const label = labels[index] || `Period ${index + 1}`;
 
                         const row = `
@@ -624,59 +811,196 @@
                 const ctx = document.getElementById('forecastChart').getContext('2d');
                 if (currentChart) currentChart.destroy();
 
-                // Enhanced color palette with better visibility for 10 SKUs
+                // Enhanced color palette
                 const colors = [
-                    '#e74c3c',  // Red
-                    '#3498db',  // Blue
-                    '#f39c12',  // Orange
-                    '#2ecc71',  // Green
-                    '#9b59b6',  // Purple
-                    '#1abc9c',  // Turquoise
-                    '#e67e22',  // Carrot
-                    '#34495e',  // Wet Asphalt
-                    '#f1c40f',  // Yellow
-                    '#e91e63'   // Pink
+                    '#e74c3c', '#3498db', '#f39c12', '#2ecc71', '#9b59b6',
+                    '#1abc9c', '#e67e22', '#34495e', '#f1c40f', '#e91e63'
                 ];
 
-                const datasets = forecastData.map((item, index) => ({
-                    label: `${item.productId} (${item.selectedModel})`,
-                    data: item.predictions,
-                    borderColor: colors[index % colors.length],
-                    backgroundColor: colors[index % colors.length] + '30',
-                    tension: 0.4,
-                    fill: false,
-                    borderWidth: 3,
-                    pointBackgroundColor: colors[index % colors.length],
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 5
-                }));
+                // Determine chart data and labels based on aggregation
+                const datasets = forecastData.map((item, index) => {
+                    // Use aggregated data if available and the forecast unit is not Days
+                    const useAggregated = item.aggregatedPredictions &&
+                                        item.aggregatedPredictions.length > 0 &&
+                                        item.request &&
+                                        item.request.unit !== 'Days';
+
+                    const data = useAggregated ? item.aggregatedPredictions : item.predictions;
+                    const chartLabels = useAggregated ? item.aggregatedLabels :
+                                       Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
+
+                    return {
+                        label: `${item.productId} (${item.selectedModel})`,
+                        data: data,
+                        borderColor: colors[index % colors.length],
+                        backgroundColor: colors[index % colors.length] + '30',
+                        tension: 0.4,
+                        fill: false,
+                        borderWidth: 3,
+                        pointBackgroundColor: colors[index % colors.length],
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 5
+                    };
+                });
+
+                // Determine chart labels based on the first item's configuration
+                let chartLabels = [];
+                let xAxisTitle = 'Forecast Horizon';
+
+                if (forecastData.length > 0) {
+                    const firstItem = forecastData[0];
+                    const useAggregated = firstItem.aggregatedPredictions &&
+                                        firstItem.aggregatedPredictions.length > 0 &&
+                                        firstItem.request &&
+                                        firstItem.request.unit !== 'Days';
+
+                    if (useAggregated) {
+                        chartLabels = firstItem.aggregatedLabels || [];
+                        
+                        // Set appropriate x-axis title based on unit
+                        switch (firstItem.request.unit) {
+                            case 'Weeks':
+                                xAxisTitle = `Weekly Forecast (${firstItem.request.quantity} weeks)`;
+                                break;
+                            case 'Months':
+                                xAxisTitle = `Monthly Forecast (${firstItem.request.quantity} months)`;
+                                break;
+                            default:
+                                xAxisTitle = `Forecast Horizon (${firstItem.request.displayText})`;
+                        }
+                    } else {
+                        // For daily data or when no aggregation is available
+                        chartLabels = Array.from({length: firstItem.predictions.length}, (_, i) => `Day ${i + 1}`);
+                        xAxisTitle = `Daily Forecast (${firstItem.request ? firstItem.request.displayText : horizonDisplay})`;
+                    }
+                } else {
+                    // Fallback labels
+                    chartLabels = Array.from({length: horizon}, (_, i) => `Day ${i + 1}`);
+                    xAxisTitle = `Forecast Horizon (${horizonDisplay})`;
+                }
+
+                // Determine chart title based on forecast unit
+                let chartTitle = 'Demand Forecast';
+                if (forecastData.length > 0 && forecastData[0].request) {
+                    const unit = forecastData[0].request.unit;
+                    const quantity = forecastData[0].request.quantity;
+                    
+                    switch (unit) {
+                        case 'Days':
+                            chartTitle = `Daily Demand Forecast - ${quantity} Day${quantity > 1 ? 's' : ''}`;
+                            break;
+                        case 'Weeks':
+                            chartTitle = `Weekly Demand Forecast - ${quantity} Week${quantity > 1 ? 's' : ''}`;
+                            break;
+                        case 'Months':
+                            chartTitle = `Monthly Demand Forecast - ${quantity} Month${quantity > 1 ? 's' : ''}`;
+                            break;
+                        default:
+                            chartTitle = `Demand Forecast - ${horizonDisplay}`;
+                    }
+                }
 
                 currentChart = new Chart(ctx, {
                     type: chartType,
                     data: {
-                        labels: Array.from({length: horizon}, (_, i) => `Day ${i + 1}`),
+                        labels: chartLabels,
                         datasets: datasets
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         scales: {
-                            y: { beginAtZero: true, title: { display: true, text: 'Forecast Value' } },
-                            x: { title: { display: true, text: 'Forecast Horizon' } }
-                        },
-                        plugins: {
-                            legend: { position: 'top' },
-                            tooltip: {
-                                callbacks: {
-                                    afterLabel: function(context) {
-                                        const dataIndex = context.dataIndex;
-                                        const product = forecastData[context.datasetIndex];
-                                        const confidence = product.confidenceIntervals[dataIndex];
-                                        return `Confidence: ±${confidence.toFixed(2)}`;
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Forecast Value (Units)',
+                                    font: {
+                                        size: 12,
+                                        weight: 'bold'
                                     }
+                                },
+                                grid: {
+                                    color: 'rgba(0,0,0,0.1)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: xAxisTitle,
+                                    font: {
+                                        size: 12,
+                                        weight: 'bold'
+                                    }
+                                },
+                                grid: {
+                                    color: 'rgba(0,0,0,0.1)'
+                                },
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 0
                                 }
                             }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    usePointStyle: true,
+                                    padding: 20
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: chartTitle,
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                },
+                                padding: {
+                                    top: 10,
+                                    bottom: 30
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(context) {
+                                        return context[0].label;
+                                    },
+                                    label: function(context) {
+                                        const product = forecastData[context.datasetIndex];
+                                        const value = context.parsed.y;
+                                        return `${context.dataset.label}: ${value.toFixed(2)} units`;
+                                    },
+                                    afterLabel: function(context) {
+                                        const product = forecastData[context.datasetIndex];
+                                        const dataIndex = context.dataIndex;
+                                        
+                                        // Get confidence interval
+                                        let confidence = 0;
+                                        if (product.aggregatedConfidenceIntervals && 
+                                            product.aggregatedConfidenceIntervals.length > dataIndex &&
+                                            product.request && product.request.unit !== 'Days') {
+                                            confidence = product.aggregatedConfidenceIntervals[dataIndex];
+                                        } else if (product.confidenceIntervals && 
+                                                 product.confidenceIntervals.length > dataIndex) {
+                                            confidence = product.confidenceIntervals[dataIndex];
+                                        }
+                                        
+                                        return confidence > 0 ? `Confidence: ±${confidence.toFixed(2)}` : '';
+                                    }
+                                },
+                                backgroundColor: 'rgba(0,0,0,0.8)',
+                                titleColor: 'white',
+                                bodyColor: 'white',
+                                borderColor: 'rgba(0,0,0,0.1)',
+                                borderWidth: 1
+                            }
+                        },
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
                         }
                     }
                 });
@@ -719,13 +1043,23 @@
 
                 document.getElementById('modalProductId').textContent = productId;
 
+                // Determine unit information
+                let unitInfo = '7 days'; // default
+                let unitType = 'Days';
+                if (product.request) {
+                    unitInfo = product.request.displayText || '7 days';
+                    unitType = product.request.unit || 'Days';
+                }
+
                 // Enhanced summary with time unit information
                 const summary = `
                     <div class="row">
                         <div class="col-6"><strong>Selected Model:</strong></div>
                         <div class="col-6">${product.selectedModel}</div>
                         <div class="col-6"><strong>Forecast Period:</strong></div>
-                        <div class="col-6">${product.request.displayText}</div>
+                        <div class="col-6">${unitInfo}</div>
+                        <div class="col-6"><strong>Forecast Type:</strong></div>
+                        <div class="col-6">${unitType}</div>
                         <div class="col-6"><strong>Avg Forecast:</strong></div>
                         <div class="col-6">${(product.predictions.reduce((a,b) => a+b, 0) / product.predictions.length).toFixed(2)}</div>
                         <div class="col-6"><strong>Model SMAPE:</strong></div>
@@ -740,62 +1074,106 @@
                 `;
                 document.getElementById('productSummary').innerHTML = summary;
 
-                // Populate modal table with appropriate data
+                // Populate modal table with appropriate data based on time unit
                 const modalTbody = document.getElementById('modalTableBody');
                 modalTbody.innerHTML = '';
 
-                // Show daily breakdown regardless of aggregation
-                product.predictions.forEach((forecast, index) => {
-                    const forecastDate = product.forecastDates[index] || '';
-                    const row = `
-                        <tr>
-                            <td>Day ${index + 1}${forecastDate ? ` (${forecastDate})` : ''}</td>
-                            <td class="forecast-value">${forecast.toFixed(2)}</td>
-                            <td class="confidence-interval">±${product.confidenceIntervals[index].toFixed(2)}</td>
-                            <td>${product.prophetPredictions[index].toFixed(2)}</td>
-                            <td>${product.xgBoostPredictions[index].toFixed(2)}</td>
-                        </tr>
-                    `;
-                    modalTbody.innerHTML += row;
-                });
+                // Determine whether to show daily breakdown or aggregated view
+                const useAggregated = product.aggregatedPredictions &&
+                                    product.aggregatedPredictions.length > 0 &&
+                                    unitType !== 'Days';
+
+                if (useAggregated) {
+                    // Show aggregated breakdown (weekly/monthly)
+                    product.aggregatedPredictions.forEach((forecast, index) => {
+                        const label = product.aggregatedLabels[index] || `${unitType.slice(0, -1)} ${index + 1}`;
+                        const confidence = product.aggregatedConfidenceIntervals[index] || 0;
+
+                        // For aggregated view, we don't have daily Prophet/XGBoost breakdown
+                        const row = `
+                            <tr>
+                                <td>${label}</td>
+                                <td class="forecast-value">${forecast.toFixed(2)}</td>
+                                <td class="confidence-interval">±${confidence.toFixed(2)}</td>
+                                <td colspan="2"><em>Aggregated from daily predictions</em></td>
+                            </tr>
+                        `;
+                        modalTbody.innerHTML += row;
+                    });
+                } else {
+                    // Show daily breakdown
+                    product.predictions.forEach((forecast, index) => {
+                        const forecastDate = product.forecastDates && product.forecastDates[index] ?
+                                            product.forecastDates[index] : '';
+                        const row = `
+                            <tr>
+                                <td>Day ${index + 1}${forecastDate ? ` (${forecastDate})` : ''}</td>
+                                <td class="forecast-value">${forecast.toFixed(2)}</td>
+                                <td class="confidence-interval">±${product.confidenceIntervals[index].toFixed(2)}</td>
+                                <td>${product.prophetPredictions[index].toFixed(2)}</td>
+                                <td>${product.xgBoostPredictions[index].toFixed(2)}</td>
+                            </tr>
+                        `;
+                        modalTbody.innerHTML += row;
+                    });
+                }
 
                 // Create detailed chart for the product
                 const ctx = document.getElementById('productChart').getContext('2d');
                 if (productChart) productChart.destroy();
 
-                // Use daily labels for detailed view
-                const dailyLabels = Array.from({length: product.predictions.length}, (_, i) => `Day ${i + 1}`);
+                // Determine chart configuration based on time unit
+                let chartData, chartLabels, chartTitle, xAxisTitle;
+
+                if (useAggregated) {
+                    chartData = [{
+                        label: `Selected (${product.selectedModel})`,
+                        data: product.aggregatedPredictions,
+                        borderColor: '#007bff',
+                        backgroundColor: '#007bff20',
+                        tension: 0.4,
+                        borderWidth: 3
+                    }];
+                    chartLabels = product.aggregatedLabels;
+                    chartTitle = `${productId} - ${unitInfo} ${unitType} Forecast`;
+                    xAxisTitle = `${unitType} Periods`;
+                } else {
+                    chartData = [
+                        {
+                            label: `Selected (${product.selectedModel})`,
+                            data: product.predictions,
+                            borderColor: '#007bff',
+                            backgroundColor: '#007bff20',
+                            tension: 0.4,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Prophet',
+                            data: product.prophetPredictions,
+                            borderColor: '#28a745',
+                            backgroundColor: 'transparent',
+                            borderDash: [5, 5],
+                            tension: 0.4
+                        },
+                        {
+                            label: 'XGBoost',
+                            data: product.xgBoostPredictions,
+                            borderColor: '#dc3545',
+                            backgroundColor: 'transparent',
+                            borderDash: [10, 5],
+                            tension: 0.4
+                        }
+                    ];
+                    chartLabels = Array.from({length: product.predictions.length}, (_, i) => `Day ${i + 1}`);
+                    chartTitle = `${productId} - ${unitInfo} Daily Forecast Comparison`;
+                    xAxisTitle = 'Daily Breakdown';
+                }
 
                 productChart = new Chart(ctx, {
                     type: 'line',
                     data: {
-                        labels: dailyLabels,
-                        datasets: [
-                            {
-                                label: `Selected (${product.selectedModel})`,
-                                data: product.predictions,
-                                borderColor: '#007bff',
-                                backgroundColor: '#007bff20',
-                                tension: 0.4,
-                                borderWidth: 3
-                            },
-                            {
-                                label: 'Prophet',
-                                data: product.prophetPredictions,
-                                borderColor: '#28a745',
-                                backgroundColor: 'transparent',
-                                borderDash: [5, 5],
-                                tension: 0.4
-                            },
-                            {
-                                label: 'XGBoost',
-                                data: product.xgBoostPredictions,
-                                borderColor: '#dc3545',
-                                backgroundColor: 'transparent',
-                                borderDash: [10, 5],
-                                tension: 0.4
-                            }
-                        ]
+                        labels: chartLabels,
+                        datasets: chartData
                     },
                     options: {
                         responsive: true,
@@ -804,17 +1182,33 @@
                             legend: { position: 'top' },
                             title: {
                                 display: true,
-                                text: `${productId} - ${product.request.displayText} Forecast Comparison`
+                                text: chartTitle,
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                }
                             }
                         },
                         scales: {
                             y: {
                                 beginAtZero: true,
-                                title: { display: true, text: 'Forecast Value' }
+                                title: {
+                                    display: true,
+                                    text: 'Forecast Value (Units)',
+                                    font: { size: 11, weight: 'bold' }
+                                }
                             },
                             x: {
-                                title: { display: true, text: 'Daily Breakdown' }
+                                title: {
+                                    display: true,
+                                    text: xAxisTitle,
+                                    font: { size: 11, weight: 'bold' }
+                                }
                             }
+                        },
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
                         }
                     }
                 });
@@ -822,8 +1216,69 @@
                 const modal = new bootstrap.Modal(document.getElementById('productModal'));
                 modal.show();
             }
-            function exportResults() {
-                alert('Export functionality would be implemented here');
+            function exportResults(format = 'csv') {
+                try {
+                    // Create a form to submit the export request
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '@Url.Action("Export", "Forecast")';
+                    
+                    // Add anti-forgery token
+                    const token = document.querySelector('input[name="__RequestVerificationToken"]');
+                    if (token) {
+                        const tokenInput = document.createElement('input');
+                        tokenInput.type = 'hidden';
+                        tokenInput.name = '__RequestVerificationToken';
+                        tokenInput.value = token.value;
+                        form.appendChild(tokenInput);
+                    }
+                    
+                    // Add format parameter
+                    const formatInput = document.createElement('input');
+                    formatInput.type = 'hidden';
+                    formatInput.name = 'format';
+                    formatInput.value = format;
+                    form.appendChild(formatInput);
+                    
+                    // Add results data
+                    const resultsInput = document.createElement('input');
+                    resultsInput.type = 'hidden';
+                    resultsInput.name = 'results';
+                    resultsInput.value = JSON.stringify(forecastData);
+                    form.appendChild(resultsInput);
+                    
+                    // Submit the form
+                    document.body.appendChild(form);
+                    form.submit();
+                    document.body.removeChild(form);
+                    
+                    // Show success message
+                    showNotification(`Exporting results as ${format.toUpperCase()}...`, 'info');
+                } catch (error) {
+                    console.error('Error exporting results:', error);
+                    showNotification('Error exporting results. Please try again.', 'error');
+                }
+            }
+
+            function showNotification(message, type = 'info') {
+                // Create notification element
+                const notification = document.createElement('div');
+                notification.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed`;
+                notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                notification.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                // Add to page
+                document.body.appendChild(notification);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 5000);
             }
         </script>
     }

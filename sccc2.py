@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 # Enhanced configuration for complex seasonality testing
-NUM_SKUS = 15
-ENTRIES_PER_SKU = 365  # Full year of data for better seasonality detection
+NUM_SKUS = 10
+ENTRIES_PER_SKU = 450
 CSV_FILE_PATH = 'supply_chain_data.csv'
 
 # Product categories with distinct seasonal behaviors
