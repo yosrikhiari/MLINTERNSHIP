@@ -99,26 +99,31 @@ namespace FrontEndForecasting.Controllers
                     return View("Errors");
                 }
 
-                // Check cache for processed data
-                var cacheKey = $"upload_{file.FileName}_{file.Length}_{DateTime.Now:yyyyMMddHHmmss}";
+                // Read stream once and compute a stable content hash for caching
+                using var memoryStream = new MemoryStream();
+                await file.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+
+                string contentHash;
+                using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                {
+                    contentHash = Convert.ToHexString(sha256.ComputeHash(memoryStream));
+                }
+                memoryStream.Position = 0;
+
+                // Stable cache key based on content hash
+                var cacheKey = $"upload_{contentHash}";
+
                 var cachedData = await _cacheService.GetAsync<List<SupplyChainData>>(cacheKey);
-                
+
                 List<SupplyChainData> supplyChainData;
                 if (cachedData != null)
                 {
-                    _performanceMonitoring.RecordCacheHit(cacheKey);
                     _logger.LogInformation("Using cached data for file: {FileName}", file.FileName);
                     supplyChainData = cachedData;
                 }
                 else
                 {
-                    _performanceMonitoring.RecordCacheMiss(cacheKey);
-                    
-                    // Create a memory stream to read the file
-                    using var memoryStream = new MemoryStream();
-                    await file.CopyToAsync(memoryStream);
-                    memoryStream.Position = 0;
-
                     _logger.LogInformation("Loading CSV data");
                     supplyChainData = ImprovedDemandForecaster.LoadCsvData(memoryStream);
 
@@ -143,6 +148,7 @@ namespace FrontEndForecasting.Controllers
                 // Store only the file path in TempData (much smaller)
                 TempData["CsvDataFilePath"] = tempFilePath;
                 TempData["FileName"] = file.FileName;
+                TempData["UploadContentHash"] = contentHash;
 
                 _logger.LogInformation($"Data saved to temporary file: {tempFilePath}");
 
@@ -246,6 +252,7 @@ namespace FrontEndForecasting.Controllers
                 // Retrieve file path from TempData
                 var tempFilePath = TempData["CsvDataFilePath"] as string;
                 var fileName = TempData["FileName"] as string;
+                var contentHash = TempData["UploadContentHash"] as string;
 
                 if (string.IsNullOrEmpty(tempFilePath) || !System.IO.File.Exists(tempFilePath))
                 {
@@ -257,20 +264,19 @@ namespace FrontEndForecasting.Controllers
                 _logger.LogInformation("Reading data from temporary file: {TempFilePath}", tempFilePath);
 
                 // Check cache for forecast results
-                var cacheKey = $"forecast_{fileName}_{horizon}_{unit}_{quantity}";
+                var cacheKey = !string.IsNullOrEmpty(contentHash)
+                    ? $"forecast_{contentHash}_{horizon}_{unit}_{quantity}"
+                    : $"forecast_{fileName}_{horizon}_{unit}_{quantity}";
                 var cachedResults = await _cacheService.GetAsync<List<EnhancedForecastResult>>(cacheKey);
 
                 List<EnhancedForecastResult> results;
                 if (cachedResults != null)
                 {
-                    _performanceMonitoring.RecordCacheHit(cacheKey);
                     _logger.LogInformation("Using cached forecast results for key: {CacheKey}", cacheKey);
                     results = cachedResults;
                 }
                 else
                 {
-                    _performanceMonitoring.RecordCacheMiss(cacheKey);
-
                     // Read and deserialize data
                     var csvDataJson = await System.IO.File.ReadAllTextAsync(tempFilePath);
                     var supplyChainData = JsonSerializer.Deserialize<List<SupplyChainData>>(csvDataJson);

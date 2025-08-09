@@ -7,11 +7,16 @@ namespace FrontEndForecasting.Services
     {
         private readonly IMemoryCache _memoryCache;
         private readonly ILogger<MemoryCacheService> _logger;
+        private readonly IPerformanceMonitoringService _performanceMonitoring;
 
-        public MemoryCacheService(IMemoryCache memoryCache, ILogger<MemoryCacheService> logger)
+        public MemoryCacheService(
+            IMemoryCache memoryCache,
+            ILogger<MemoryCacheService> logger,
+            IPerformanceMonitoringService performanceMonitoring)
         {
             _memoryCache = memoryCache;
             _logger = logger;
+            _performanceMonitoring = performanceMonitoring;
         }
 
         public Task<T?> GetAsync<T>(string key) where T : class
@@ -23,10 +28,12 @@ namespace FrontEndForecasting.Services
                 if (_memoryCache.TryGetValue(key, out var cachedValue))
                 {
                     _logger.LogDebug("Cache hit for key: {Key}", key);
+                    _performanceMonitoring.RecordCacheHit(key);
                     return Task.FromResult(cachedValue as T);
                 }
 
                 _logger.LogDebug("Cache miss for key: {Key}", key);
+                _performanceMonitoring.RecordCacheMiss(key);
                 return Task.FromResult<T?>(null);
             }
             catch (Exception ex)
