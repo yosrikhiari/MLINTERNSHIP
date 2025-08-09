@@ -14,7 +14,7 @@ namespace FrontEndForecasting.Services
             _logger = logger;
         }
 
-        public async Task<T?> GetAsync<T>(string key) where T : class
+        public Task<T?> GetAsync<T>(string key) where T : class
         {
             try
             {
@@ -23,25 +23,25 @@ namespace FrontEndForecasting.Services
                 if (_memoryCache.TryGetValue(key, out var cachedValue))
                 {
                     _logger.LogDebug("Cache hit for key: {Key}", key);
-                    return cachedValue as T;
+                    return Task.FromResult(cachedValue as T);
                 }
 
                 _logger.LogDebug("Cache miss for key: {Key}", key);
-                return null;
+                return Task.FromResult<T?>(null);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving cached item with key: {Key}", key);
-                return null;
+                return Task.FromResult<T?>(null);
             }
         }
 
-        public async Task SetAsync<T>(string key, T value, TimeSpan? expiration = null) where T : class
+                public Task SetAsync<T>(string key, T value, TimeSpan? expiration = null) where T : class
         {
             try
             {
                 var options = new MemoryCacheEntryOptions();
-                
+
                 if (expiration.HasValue)
                 {
                     options.AbsoluteExpirationRelativeToNow = expiration;
@@ -54,29 +54,33 @@ namespace FrontEndForecasting.Services
 
                 _memoryCache.Set(key, value, options);
                 _logger.LogDebug("Cached item with key: {Key}, expiration: {Expiration}", key, expiration);
+                                return Task.CompletedTask;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error setting cached item with key: {Key}", key);
+                             return Task.CompletedTask;
             }
         }
 
-        public async Task RemoveAsync(string key)
+        public Task RemoveAsync(string key)
         {
             try
             {
                 _memoryCache.Remove(key);
                 _logger.LogDebug("Removed cached item with key: {Key}", key);
+                return Task.CompletedTask;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error removing cached item with key: {Key}", key);
+                return Task.CompletedTask;
             }
         }
 
-        public async Task<bool> ExistsAsync(string key)
+        public Task<bool> ExistsAsync(string key)
         {
-            return _memoryCache.TryGetValue(key, out _);
+            return Task.FromResult(_memoryCache.TryGetValue(key, out _));
         }
 
         public async Task<T> GetOrSetAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiration = null) where T : class

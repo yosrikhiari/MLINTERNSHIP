@@ -11,7 +11,6 @@ using XGBoostSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 
 namespace MLINTERNSHIP
 {
@@ -110,8 +109,10 @@ namespace MLINTERNSHIP
         public string EventName { get; set; } = string.Empty;
         public float SeasonalMultiplier { get; set; }
         public float ProphetSeasonalSpike { get; set; }
-
-
+        public float ProphetWeeklySeasonality { get; set; }
+        public float ProphetYearlySeasonality { get; set; }
+        public float ProphetMonthlySeasonality { get; set; }
+        public float ProphetQuarterlySeasonality { get; set; }
         public TransformationInfo? TransformationInfo { get; set; }
     }
 
@@ -121,7 +122,7 @@ namespace MLINTERNSHIP
         public float Lambda { get; set; } = 0.5f;
         public List<float> OriginalSeries { get; set; } = new();
     }
-    public class EnhancedXgBoostInput
+        public class EnhancedXgBoostInput
     {
         public float Lag1 { get; set; }
         public float Lag2 { get; set; }
@@ -143,9 +144,13 @@ namespace MLINTERNSHIP
         public float PriceChange { get; set; }
         public float StockLevels { get; set; }
         public float StockRatio { get; set; }
-        public float ProcurementLeadTime { get; set; }
+        public float ProcurementLeadTime { get; set; } 
         public float ManufacturingLeadTime { get; set; }
-        public float ProphetForecast { get; set; } 
+        public float ProphetSeasonalMultiplier { get; set; } 
+        public float ProphetWeeklySeasonality { get; set; }
+        public float ProphetYearlySeasonality { get; set; }
+        public float ProphetMonthlySeasonality { get; set; }
+        public float ProphetQuarterlySeasonality { get; set; }
         public float IsWeekend { get; set; }
         public float IsMonthEnd { get; set; }
         public float IsQuarterEnd { get; set; }
@@ -1063,7 +1068,8 @@ namespace MLINTERNSHIP
                 d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
                 d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
                 d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime,
-                d.ManufacturingLeadTime, d.ProphetForecast, d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
+                d.ManufacturingLeadTime, d.ProphetSeasonalMultiplier, d.ProphetWeeklySeasonality, d.ProphetYearlySeasonality,
+                d.ProphetMonthlySeasonality, d.ProphetQuarterlySeasonality, d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
                 d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
 
@@ -1086,17 +1092,21 @@ namespace MLINTERNSHIP
 
         private static List<float> PredictWithXgBoostModel(XGBRegressor regressor, List<EnhancedXgBoostInput> inputs)
         {
-            float[][] data = inputs.Select(d => new float[]
+            float[][] dataTest = inputs.Select(d => new float[]
             {
-                d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
-                d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
-                d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime,
-                d.ManufacturingLeadTime, d.ProphetForecast, d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
+                d.Lag1, d.Lag2, d.Lag3, d.Lag7,
+                d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
+                d.ExponentialSmoothing, d.Volatility, d.Trend,
+                d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear, d.WeekOfYear,
+                d.Price, d.PriceChange, d.StockLevels, d.StockRatio,
+                d.ProcurementLeadTime, d.ManufacturingLeadTime,
+                d.ProphetSeasonalMultiplier, d.ProphetWeeklySeasonality, d.ProphetYearlySeasonality,
+                d.ProphetMonthlySeasonality, d.ProphetQuarterlySeasonality,
+                d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
                 d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
 
-            float[] predictions = regressor.Predict(data);
-            return predictions.Select(p => Math.Max(0, p)).ToList();
+            return regressor.Predict(dataTest).ToList();
         }
 
         private static double CalculateSMAPEStatic(ReadOnlySpan<float> predictions, ReadOnlySpan<float> actual)
@@ -1217,7 +1227,7 @@ namespace MLINTERNSHIP
         private static List<EnhancedXgBoostInput> PrepareEnhancedXgBoostDataWithProphetSpikes(
             List<DemandData> fullData, int startIndex, int count)
         {
-            var xgBoostData = new List<EnhancedXgBoostInput>();
+                var xgBoostData = new List<EnhancedXgBoostInput>();
 
             for (int i = startIndex; i < startIndex + count && i < fullData.Count; i++)
             {
@@ -1245,8 +1255,12 @@ namespace MLINTERNSHIP
                 var trend = recentDemandsSpan.Length >= 7 ?
                     (CalculateMovingAverage(recentDemandsSpan.Slice(18), 3) - CalculateMovingAverage(recentDemandsSpan.Slice(0, 3), 3)) / 18f : 0;
 
-                // KEY: Use Prophet seasonal spike as a feature
+                // KEY: Use enhanced Prophet seasonal features
                 var prophetSeasonalSpike = fullData[i].ProphetSeasonalSpike;
+                var prophetWeeklySeasonality = fullData[i].ProphetWeeklySeasonality;
+                var prophetYearlySeasonality = fullData[i].ProphetYearlySeasonality;
+                var prophetMonthlySeasonality = fullData[i].ProphetMonthlySeasonality;
+                var prophetQuarterlySeasonality = fullData[i].ProphetQuarterlySeasonality;
 
                 var rollingStd7 = CalculateStandardDeviation(recentDemandsSpan.Slice(14));
                 var movingAvgDiff = movingAvg7 - movingAvg21;
@@ -1277,7 +1291,11 @@ namespace MLINTERNSHIP
                     StockRatio = fullData[i].StockRatio,
                     ProcurementLeadTime = fullData[i].ProcurementLeadTime,
                     ManufacturingLeadTime = fullData[i].ManufacturingLeadTime,
-                    ProphetForecast = fullData[i].ProphetSeasonalSpike,
+                    ProphetSeasonalMultiplier = prophetSeasonalSpike,
+                    ProphetWeeklySeasonality = prophetWeeklySeasonality,
+                    ProphetYearlySeasonality = prophetYearlySeasonality,
+                    ProphetMonthlySeasonality = prophetMonthlySeasonality,
+                    ProphetQuarterlySeasonality = prophetQuarterlySeasonality,
                     IsWeekend = fullData[i].IsWeekend,
                     IsMonthEnd = fullData[i].Date.Day >= 28 ? 1 : 0,
                     IsQuarterEnd = fullData[i].Month % 3 == 0 && fullData[i].Date.Day >= 28 ? 1 : 0,
@@ -1351,6 +1369,8 @@ namespace MLINTERNSHIP
                         {
                             var result = JsonConvert.DeserializeObject<dynamic>(output);
                             var historical = new Dictionary<DateTime, float>();
+                            
+                            // Extract historical seasonal spikes
                             if (result.historical_seasonal_spikes != null)
                             {
                                 foreach (var kvp in result.historical_seasonal_spikes)
@@ -1363,12 +1383,78 @@ namespace MLINTERNSHIP
                                 }
                             }
 
+                            // Extract future seasonal spikes
                             var future = new List<float>();
                             if (result.future_seasonal_spikes != null)
                             {
                                 foreach (var spike in result.future_seasonal_spikes)
                                 {
                                     future.Add((float)spike);
+                                }
+                            }
+
+                            // Store detailed seasonal components in the data
+                            if (result.historical_weekly_seasonality != null)
+                            {
+                                foreach (var kvp in result.historical_weekly_seasonality)
+                                {
+                                    if (DateTime.TryParseExact(kvp.Name, "yyyy-MM-dd",
+                                            CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                                    {
+                                        var dataItem = data.FirstOrDefault(d => d.Date.Date == date.Date);
+                                        if (dataItem != null)
+                                        {
+                                            dataItem.ProphetWeeklySeasonality = (float)kvp.Value;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (result.historical_yearly_seasonality != null)
+                            {
+                                foreach (var kvp in result.historical_yearly_seasonality)
+                                {
+                                    if (DateTime.TryParseExact(kvp.Name, "yyyy-MM-dd",
+                                            CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                                    {
+                                        var dataItem = data.FirstOrDefault(d => d.Date.Date == date.Date);
+                                        if (dataItem != null)
+                                        {
+                                            dataItem.ProphetYearlySeasonality = (float)kvp.Value;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (result.historical_monthly_seasonality != null)
+                            {
+                                foreach (var kvp in result.historical_monthly_seasonality)
+                                {
+                                    if (DateTime.TryParseExact(kvp.Name, "yyyy-MM-dd",
+                                            CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                                    {
+                                        var dataItem = data.FirstOrDefault(d => d.Date.Date == date.Date);
+                                        if (dataItem != null)
+                                        {
+                                            dataItem.ProphetMonthlySeasonality = (float)kvp.Value;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (result.historical_quarterly_seasonality != null)
+                            {
+                                foreach (var kvp in result.historical_quarterly_seasonality)
+                                {
+                                    if (DateTime.TryParseExact(kvp.Name, "yyyy-MM-dd",
+                                            CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                                    {
+                                        var dataItem = data.FirstOrDefault(d => d.Date.Date == date.Date);
+                                        if (dataItem != null)
+                                        {
+                                            dataItem.ProphetQuarterlySeasonality = (float)kvp.Value;
+                                        }
+                                    }
                                 }
                             }
 
@@ -1398,7 +1484,6 @@ namespace MLINTERNSHIP
             }
 
             return CreateFallbackSeasonalData(data, horizon);
-            
         }
         private static (Dictionary<DateTime, float> historical, List<float> future) CreateFallbackSeasonalData(
             List<DemandData> data, int horizon)
@@ -1481,27 +1566,45 @@ namespace MLINTERNSHIP
 
             Console.WriteLine($"\nProcessing {productId} with {productData.Count} data points");
 
-            // Step 1: Get both historical and future Prophet seasonal patterns in one call
-            var (historicalSpikes, futureSpikes) = DetectSeasonalSpikesWithProphetEnhanced(productData, horizon);
+            // Step 1: Compute split on raw data to avoid leakage
+            var preSplitTrainRatio = Math.Max(0.7, Math.Min(0.9, 1.0 - (14.0 / productData.Count)));
+            var preSplitTrainSize = (int)(productData.Count * preSplitTrainRatio);
+            var preSplitValidationSize = productData.Count - preSplitTrainSize;
 
-            // Step 2: Apply Prophet spikes to historical data
-            for (int i = 0; i < productData.Count; i++)
+            // Step 2: Fit Prophet on train only; request future components covering validation + forecast horizon
+            var (historicalSpikes, futureSpikesAll) = DetectSeasonalSpikesWithProphetEnhanced(
+                productData.Take(preSplitTrainSize).ToList(), preSplitValidationSize + horizon);
+
+            // Apply Prophet spikes to training portion
+            for (int i = 0; i < preSplitTrainSize; i++)
             {
-                if (historicalSpikes.ContainsKey(productData[i].Date))
+                var date = productData[i].Date;
+                if (historicalSpikes.ContainsKey(date))
                 {
-                    productData[i].ProphetSeasonalSpike = historicalSpikes[productData[i].Date];
+                    productData[i].ProphetSeasonalSpike = historicalSpikes[date];
                 }
                 else
                 {
-                    var nearbySpike = GetInterpolatedSeasonalSpike(historicalSpikes, productData[i].Date);
-                    productData[i].ProphetSeasonalSpike = nearbySpike ?? CalculateFallbackSeasonality(productData[i].Date);
+                    var nearbySpike = GetInterpolatedSeasonalSpike(historicalSpikes, date);
+                    productData[i].ProphetSeasonalSpike = nearbySpike ?? CalculateFallbackSeasonality(date);
                 }
             }
+            // Apply Prophet spikes to validation portion using Prophet future output
+            for (int i = 0; i < preSplitValidationSize; i++)
+            {
+                if (i < futureSpikesAll.Count)
+                {
+                    productData[preSplitTrainSize + i].ProphetSeasonalSpike = futureSpikesAll[i];
+                }
+            }
+
+            // Separate Prophet future spikes for forecast horizon (after validation window)
+            var futureSpikesForHorizon = futureSpikesAll.Skip(preSplitValidationSize).Take(horizon).ToList();
 
             // Step 3: Preprocess data with transformation
             var (processedData, transformationInfo) = EnhancedPreprocessDataWithTransformation(productData);
 
-            // Step 4: Prepare training/validation split
+            // Step 4: Prepare training/validation split (post-transform, same sizes)
             var trainRatio = Math.Max(0.7, Math.Min(0.9, 1.0 - (14.0 / processedData.Count)));
             var trainSize = (int)(processedData.Count * trainRatio);
             var validationSize = processedData.Count - trainSize;
@@ -1525,8 +1628,8 @@ namespace MLINTERNSHIP
             Console.WriteLine($"  Training final XGBoost model...");
             var xgBoostModel = TrainXgBoost(xgBoostTrainData, optimalParams);
 
-            // Step 7: Create future features using Prophet seasonal patterns
-            var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, futureSpikes, horizon);
+            // Step 7: Create future features using Prophet seasonal patterns (from train-only fit)
+            var xgBoostFutureData = CreateEnhancedFutureFeatures(processedData, futureSpikesForHorizon, horizon);
 
             // Step 8: Make predictions
             var validationPredictions = PredictWithXgBoost(xgBoostModel, xgBoostValidationData);
@@ -1613,6 +1716,11 @@ namespace MLINTERNSHIP
                     IsEvent = item.IsEvent,
                     EventName = item.EventName,
                     SeasonalMultiplier = item.SeasonalMultiplier,
+                    ProphetSeasonalSpike = item.ProphetSeasonalSpike,
+                    ProphetWeeklySeasonality = item.ProphetWeeklySeasonality,
+                    ProphetYearlySeasonality = item.ProphetYearlySeasonality,
+                    ProphetMonthlySeasonality = item.ProphetMonthlySeasonality,
+                    ProphetQuarterlySeasonality = item.ProphetQuarterlySeasonality,
                     TransformationInfo = transformationInfo
                 });
             }
@@ -1780,7 +1888,8 @@ namespace MLINTERNSHIP
                 d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear, d.WeekOfYear,
                 d.Price, d.PriceChange, d.StockLevels, d.StockRatio,
                 d.ProcurementLeadTime, d.ManufacturingLeadTime,
-                d.ProphetForecast,
+                d.ProphetSeasonalMultiplier, d.ProphetWeeklySeasonality, d.ProphetYearlySeasonality,
+                d.ProphetMonthlySeasonality, d.ProphetQuarterlySeasonality,
                 d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
                 d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
@@ -1802,15 +1911,21 @@ namespace MLINTERNSHIP
         }
         private List<float> PredictWithXgBoost(XGBRegressor regressor, List<EnhancedXgBoostInput> inputs)
         {
-            float[][] data = inputs.Select(d => new float[]
+            float[][] dataTest = inputs.Select(d => new float[]
             {
-        d.Lag1, d.Lag2, d.Lag3, d.Lag7, d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
-        d.ExponentialSmoothing, d.Volatility, d.Trend, d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear,
-        d.WeekOfYear, d.Price, d.PriceChange, d.StockLevels, d.StockRatio, d.ProcurementLeadTime,d.ManufacturingLeadTime, d.ProphetForecast,
-        d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd, d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
+                d.Lag1, d.Lag2, d.Lag3, d.Lag7,
+                d.MovingAvg3, d.MovingAvg7, d.MovingAvg14, d.MovingAvg21,
+                d.ExponentialSmoothing, d.Volatility, d.Trend,
+                d.DayOfWeek, d.Month, d.Quarter, d.DayOfYear, d.WeekOfYear,
+                d.Price, d.PriceChange, d.StockLevels, d.StockRatio,
+                d.ProcurementLeadTime, d.ManufacturingLeadTime,
+                d.ProphetSeasonalMultiplier, d.ProphetWeeklySeasonality, d.ProphetYearlySeasonality,
+                d.ProphetMonthlySeasonality, d.ProphetQuarterlySeasonality,
+                d.IsWeekend, d.IsMonthEnd, d.IsQuarterEnd,
+                d.RollingStd7, d.MovingAvgDiff, d.Lag1Diff, d.Lag7Diff
             }).ToArray();
-            float[] predictions = regressor.Predict(data);
-            return predictions.Select(p => Math.Max(0, p)).ToList();
+
+            return regressor.Predict(dataTest).ToList();
         }
         private static List<EnhancedXgBoostInput> CreateEnhancedFutureFeatures(List<DemandData> historicalData, List<float> prophetSeasonalSpikes, int horizon)
         {
@@ -1846,6 +1961,13 @@ namespace MLINTERNSHIP
                 var lag1Diff = i > 0 ? prophetSeasonalSpikes[i - 1] - currentDemands.Last() : currentDemands.Last() - currentDemands[^2];
                 var lag7Diff = i >= 6 ? prophetSeasonalSpikes[i - 1] - currentDemands[^7] : 0;
 
+                // Calculate enhanced seasonal features for future dates
+                var prophetSeasonalSpike = prophetSeasonalSpikes[i];
+                var prophetWeeklySeasonality = CalculateFutureWeeklySeasonality(futureDate);
+                var prophetYearlySeasonality = CalculateFutureYearlySeasonality(futureDate);
+                var prophetMonthlySeasonality = CalculateFutureMonthlySeasonality(futureDate);
+                var prophetQuarterlySeasonality = CalculateFutureQuarterlySeasonality(futureDate);
+
                 futureFeatures.Add(new EnhancedXgBoostInput
                 {
                     Lag1 = currentDemands.Last(),
@@ -1870,7 +1992,11 @@ namespace MLINTERNSHIP
                     StockRatio = historicalData.Last().StockRatio,
                     ProcurementLeadTime = historicalData.Last().ProcurementLeadTime,
                     ManufacturingLeadTime = historicalData.Last().ManufacturingLeadTime,
-                    ProphetForecast = prophetSeasonalSpikes[i], // Changed to ProphetForecast and fixed index
+                    ProphetSeasonalMultiplier = prophetSeasonalSpike,
+                    ProphetWeeklySeasonality = prophetWeeklySeasonality,
+                    ProphetYearlySeasonality = prophetYearlySeasonality,
+                    ProphetMonthlySeasonality = prophetMonthlySeasonality,
+                    ProphetQuarterlySeasonality = prophetQuarterlySeasonality,
                     IsWeekend = futureDate.DayOfWeek == DayOfWeek.Saturday || futureDate.DayOfWeek == DayOfWeek.Sunday ? 1 : 0,
                     IsMonthEnd = futureDate.Day >= 28 ? 1 : 0,
                     IsQuarterEnd = futureDate.Month % 3 == 0 && futureDate.Day >= 28 ? 1 : 0,
@@ -2082,6 +2208,38 @@ namespace MLINTERNSHIP
                 ConfidenceIntervals = Enumerable.Repeat(0f, horizon).ToList(),
                 SelectedModel = "ExponentialSmoothing"
             };
+        }
+
+        private static float CalculateFutureWeeklySeasonality(DateTime date)
+        {
+            // Simple weekly seasonality calculation based on day of week
+            var dayOfWeek = (int)date.DayOfWeek;
+            var weeklyPattern = new float[] { 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 0.7f }; // Mon-Sun pattern
+            return weeklyPattern[dayOfWeek];
+        }
+
+        private static float CalculateFutureYearlySeasonality(DateTime date)
+        {
+            // Simple yearly seasonality calculation based on day of year
+            var dayOfYear = date.DayOfYear;
+            var yearlyCycle = (float)(0.2 * Math.Sin(2 * Math.PI * dayOfYear / 365.25));
+            return yearlyCycle;
+        }
+
+        private static float CalculateFutureMonthlySeasonality(DateTime date)
+        {
+            // Simple monthly seasonality calculation based on month
+            var month = date.Month;
+            var monthlyPattern = new float[] { 0.9f, 0.85f, 1.1f, 1.2f, 1.15f, 1.0f, 0.95f, 1.05f, 1.1f, 1.0f, 0.9f, 1.2f };
+            return monthlyPattern[month - 1];
+        }
+
+        private static float CalculateFutureQuarterlySeasonality(DateTime date)
+        {
+            // Simple quarterly seasonality calculation based on quarter
+            var quarter = (date.Month - 1) / 3 + 1;
+            var quarterlyPattern = new float[] { 0.9f, 1.1f, 1.0f, 1.2f }; // Q1-Q4 pattern
+            return quarterlyPattern[quarter - 1];
         }
 
     }
