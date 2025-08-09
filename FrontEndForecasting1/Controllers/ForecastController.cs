@@ -47,7 +47,7 @@ namespace FrontEndForecasting.Controllers
         public IActionResult Index()
         {
             _performanceMonitoring.RecordUserAction("view_index");
-            return View();
+            return this.View();
         }
 
         /// <summary>
