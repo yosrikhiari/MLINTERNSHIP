@@ -1,3 +1,4 @@
+# prometheus/prometheus.yml
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -11,15 +12,32 @@ scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # ML Model Service
+  - job_name: 'ml-model-service'
+    static_configs:
+      - targets: ['mlinternship:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+)(?::\d+)?'
+        replacement: '${1}'
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'ml-model-service'
 
   # Frontend Forecasting Application
   - job_name: 'frontend-forecasting'
     static_configs:
       - targets: ['frontend-forecasting:80']
-    metrics_path: '/health'
+    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
-    # Add custom labels for better organization
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance

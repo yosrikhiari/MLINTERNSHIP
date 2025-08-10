@@ -3,15 +3,12 @@
 .gitignore
 .gitattributes
 
-# Build outputs
-bin/
-obj/
+# Build outputs (but keep project files)
+**/bin/
+**/obj/
 *.user
 *.suo
 *.cache
-*.dll
-*.exe
-*.pdb
 
 # Visual Studio
 .vs/
@@ -55,3 +52,11 @@ Thumbs.db
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Documentation
+README.md
+*.md
