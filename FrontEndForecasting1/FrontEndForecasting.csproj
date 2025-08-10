@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 	<EnableDefaultScopedCssItems>true</EnableDefaultScopedCssItems>
@@ -13,6 +13,7 @@
     <PackageReference Include="Chart.js" Version="3.7.1" />
 	  <PackageReference Include="Csv" Version="2.0.170" />
 	  <PackageReference Include="CsvTextFieldParser" Version="1.2.2" />
+	  <PackageReference Include="Docker.DotNet" Version="3.125.15" />
 	  <PackageReference Include="LG.Microsoft.ML.FastTree" Version="1.6.0.4" />
 	  <PackageReference Include="libxgboost-2.0.3-win-x64" Version="1.0.0" />
 	  <PackageReference Include="LumenWorksCsvReader" Version="4.0.0" />
@@ -41,8 +42,6 @@
     <!-- Performance Monitoring -->
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.0" />
-    <PackageReference Include="prometheus-net" Version="8.2.1" />
-    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
 
   </ItemGroup>
 

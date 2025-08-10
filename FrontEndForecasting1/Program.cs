@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using FrontEndForecasting.Services;
-using Prometheus;
 
 namespace FrontEndForecasting
 {
@@ -13,6 +12,12 @@ namespace FrontEndForecasting
             try
             {
                 var builder = WebApplication.CreateBuilder(args);
+
+                // Only load configuration from appsettings.json (and environment-specific) with no other fallbacks
+                builder.Configuration.Sources.Clear();
+                builder.Configuration
+                    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 
                 // Configure services
                 builder.Services.AddControllersWithViews(options =>
@@ -75,10 +80,6 @@ namespace FrontEndForecasting
                 app.UseSession();
                 app.UseAuthorization();
 
-                // Add Prometheus metrics endpoint
-                app.UseMetricServer();
-                app.UseHttpMetrics();
-
                 // Add health checks endpoint
                 app.MapHealthChecks("/health");
 
@@ -90,7 +91,7 @@ namespace FrontEndForecasting
 
                 app.MapControllerRoute(
                     name: "default",
-                    pattern: "{controller=Home}/{action=Index}/{id?}");
+                    pattern: "{controller=forecast}/{action=Index}/{id?}");
 
                 app.Run();
             }
