@@ -1335,9 +1335,8 @@ namespace MLINTERNSHIP
                     var tempFilePath = Path.GetTempFileName();
                     File.WriteAllText(tempFilePath, jsonInput);
 
-                    var pythonPath = @"C:\Users\yosri\AppData\Local\Microsoft\WindowsApps\python.exe";
-                    var scriptPath =
-                        @"C:\Users\yosri\Desktop\projects for me\intership 4éme\MLINTERNSHIP\MLINTERNSHIP\prophet_seasonal_detector.py";
+                    var pythonPath ="/usr/bin/python3";
+                    var scriptPath ="/home/yosri/Documents/Projects/MLINTERNSHIP/MLINTERNSHIP/prophet_seasonal_detector.py";
 
                     using (var process = new Process
                            {
