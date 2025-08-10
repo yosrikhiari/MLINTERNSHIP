@@ -35,7 +35,7 @@ services:
       dockerfile: FrontEndForecasting1/Dockerfile
     container_name: frontend-forecasting
     ports:
-      - "8080:80"
+      - "8088:80"
       - "8443:443"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
