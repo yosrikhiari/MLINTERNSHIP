@@ -11,18 +11,19 @@
   <ItemGroup>
     <ProjectReference Include="..\MLINTERNSHIP\MLINTERNSHIP.csproj" />
     <PackageReference Include="Chart.js" Version="3.7.1" />
-	  <PackageReference Include="Csv" Version="2.0.170" />
-	  <PackageReference Include="CsvTextFieldParser" Version="1.2.2" />
-	  <PackageReference Include="Docker.DotNet" Version="3.125.15" />
-	  <PackageReference Include="LG.Microsoft.ML.FastTree" Version="1.6.0.4" />
-	  <PackageReference Include="libxgboost-2.0.3-win-x64" Version="1.0.0" />
-	  <PackageReference Include="LumenWorksCsvReader" Version="4.0.0" />
-	  <PackageReference Include="CsvHelper" Version="33.1.0" /> <PackageReference Include="Microsoft.ML.TimeSeries" Version="4.0.2" />
-	  <PackageReference Include="Microsoft.ML" Version="4.0.2" />
-	 
-	  <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
-	  <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-	  <PackageReference Include="XGBoostSharp" Version="0.5.2" />
+    <PackageReference Include="Csv" Version="2.0.170" />
+    <PackageReference Include="CsvTextFieldParser" Version="1.2.2" />
+    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+    <PackageReference Include="LG.Microsoft.ML.FastTree" Version="1.6.0.4" />
+    <PackageReference Include="libxgboost-2.0.3-linux-x64" Version="1.0.1" />
+    <PackageReference Include="LumenWorksCsvReader" Version="4.0.0" />
+    <PackageReference Include="CsvHelper" Version="33.1.0" />
+    <PackageReference Include="Microsoft.ML.TimeSeries" Version="4.0.2" />
+    <PackageReference Include="Microsoft.ML" Version="4.0.2" />
+    
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="XGBoostSharp" Version="0.5.2" />
     
     <!-- Testing Packages -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />

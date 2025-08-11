@@ -24,4 +24,11 @@
 		<PackageReference Include="XGBoostSharp" Version="0.5.2" />
 	</ItemGroup>
 
+  <ItemGroup>
+    <None Include="prophet_seasonal_detector.py">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
+

@@ -40,6 +40,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:80
+      - LD_LIBRARY_PATH=/app:/app/runtimes/linux-x64/native:/usr/lib:/usr/local/lib
     volumes:
       - ./FrontEndForecasting1/appsettings.json:/app/appsettings.json:ro
       - ./FrontEndForecasting1/appsettings.Production.json:/app/appsettings.Production.json:ro
