@@ -26,9 +26,8 @@ namespace FrontEndForecasting
                     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
                 });
 
-                // Add caching services
-                builder.Services.AddMemoryCache();
-                builder.Services.AddScoped<ICacheService, MemoryCacheService>();
+                // Add caching services (Redis-backed)
+                builder.Services.AddMemoryCache(); // optional local fallback for other features
 
                 // Add export services
                 builder.Services.AddScoped<IExportService, ExportService>();
@@ -54,6 +53,17 @@ namespace FrontEndForecasting
                     options.ValueLengthLimit = int.MaxValue;
                     options.ValueCountLimit = int.MaxValue;
                 });
+
+                var redisConfig = builder.Configuration["Redis:Configuration"]
+                                ?? builder.Configuration["REDIS__CONFIGURATION"]
+                                ?? "redis:6379,abortConnect=false";
+                builder.Services.AddStackExchangeRedisCache(o =>
+                {
+                    o.Configuration = redisConfig;
+                    o.InstanceName = "forecast:";
+                });
+
+                builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
                 // Configure Kestrel server limits
                 builder.Services.Configure<KestrelServerOptions>(options =>

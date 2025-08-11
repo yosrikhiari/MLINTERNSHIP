@@ -41,6 +41,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:80
       - LD_LIBRARY_PATH=/app:/app/runtimes/linux-x64/native:/usr/lib:/usr/local/lib
+      - REDIS__CONFIGURATION=redis:6379,abortConnect=false
     volumes:
       - ./FrontEndForecasting1/appsettings.json:/app/appsettings.json:ro
       - ./FrontEndForecasting1/appsettings.Production.json:/app/appsettings.Production.json:ro
@@ -48,8 +49,8 @@ services:
       - forecasting-network
     restart: unless-stopped
     depends_on:
-      ml-model-service:
-        condition: service_started  # Changed from service_healthy
+      - ml-model-service
+      - redis
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"]
       interval: 30s
@@ -112,6 +113,21 @@ services:
       retries: 3
       start_period: 45s
 
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: ["redis-server", "--appendonly", "yes"] 
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - forecasting-network
+
 volumes:
   prometheus_data:
     driver: local
@@ -120,6 +136,8 @@ volumes:
   mlinternship_data:
     driver: local
   mlinternship_logs:
+    driver: local
+  redis_data:
     driver: local
 
 networks:
