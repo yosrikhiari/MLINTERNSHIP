@@ -1335,15 +1335,37 @@ namespace MLINTERNSHIP
                     var tempFilePath = Path.GetTempFileName();
                     File.WriteAllText(tempFilePath, jsonInput);
 
-                    var pythonPath ="/usr/bin/python3";
-                    var scriptPath ="/home/yosri/Documents/Projects/MLINTERNSHIP/MLINTERNSHIP/prophet_seasonal_detector.py";
+                    // Resolve python and script path inside container and locally
+                    var pythonPath = "python3"; // rely on PATH (venv is added in container)
+
+                    string? resolvedScriptPath = null;
+                    var candidateScriptPaths = new List<string?>
+                    {
+                        Environment.GetEnvironmentVariable("PROPHET_SCRIPT_PATH"),
+                        Path.Combine(AppContext.BaseDirectory, "prophet_seasonal_detector.py"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "prophet_seasonal_detector.py"),
+                        "/app/prophet_seasonal_detector.py",
+                    };
+                    foreach (var path in candidateScriptPaths)
+                    {
+                        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                        {
+                            resolvedScriptPath = path;
+                            break;
+                        }
+                    }
+                    if (string.IsNullOrWhiteSpace(resolvedScriptPath))
+                    {
+                        throw new FileNotFoundException("Prophet script not found in expected locations.",
+                            string.Join(" | ", candidateScriptPaths.Where(p => !string.IsNullOrWhiteSpace(p))!));
+                    }
 
                     using (var process = new Process
                            {
                                StartInfo = new ProcessStartInfo
                                {
                                    FileName = pythonPath,
-                                   Arguments = $"\"{scriptPath}\" \"{tempFilePath}\"",
+                                   Arguments = $"\"{resolvedScriptPath}\" \"{tempFilePath}\"",
                                    RedirectStandardOutput = true,
                                    RedirectStandardError = true,
                                    UseShellExecute = false,
