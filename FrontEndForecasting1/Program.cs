@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using FrontEndForecasting.Services;
+using Prometheus;
 
 namespace FrontEndForecasting
 {
@@ -37,8 +38,7 @@ namespace FrontEndForecasting
                 builder.Services.AddScoped<IPerformanceMonitoringService, PerformanceMonitoringService>();
 
                 // Add health checks
-                builder.Services.AddHealthChecks()
-                    .AddCheck<HealthChecks.RedisHealthCheck>("redis", tags: new[] { "redis", "cache" });
+                builder.Services.AddHealthChecks();
 
                 builder.Services.AddSession(options =>
                 {
@@ -89,6 +89,10 @@ namespace FrontEndForecasting
                 app.UseRouting();
                 app.UseSession();
                 app.UseAuthorization();
+
+                // Add Prometheus metrics endpoint
+                app.UseMetricServer();
+                app.UseHttpMetrics();
 
                 // Add health checks endpoint
                 app.MapHealthChecks("/health");
