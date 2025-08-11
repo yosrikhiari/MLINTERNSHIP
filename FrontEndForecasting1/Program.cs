@@ -26,8 +26,9 @@ namespace FrontEndForecasting
                     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
                 });
 
-                // Add caching services (Redis-backed)
-                builder.Services.AddMemoryCache(); // optional local fallback for other features
+                // Add caching services
+                builder.Services.AddMemoryCache();
+                builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
                 // Add export services
                 builder.Services.AddScoped<IExportService, ExportService>();
@@ -36,7 +37,8 @@ namespace FrontEndForecasting
                 builder.Services.AddScoped<IPerformanceMonitoringService, PerformanceMonitoringService>();
 
                 // Add health checks
-                builder.Services.AddHealthChecks();
+                builder.Services.AddHealthChecks()
+                    .AddCheck<HealthChecks.RedisHealthCheck>("redis", tags: new[] { "redis", "cache" });
 
                 builder.Services.AddSession(options =>
                 {
@@ -62,8 +64,6 @@ namespace FrontEndForecasting
                     o.Configuration = redisConfig;
                     o.InstanceName = "forecast:";
                 });
-
-                builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
                 // Configure Kestrel server limits
                 builder.Services.Configure<KestrelServerOptions>(options =>

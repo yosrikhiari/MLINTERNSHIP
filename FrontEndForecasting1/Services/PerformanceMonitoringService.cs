@@ -8,6 +8,7 @@ namespace FrontEndForecasting.Services
         void RecordExportRequest(string format, TimeSpan duration);
         void RecordCacheHit(string key);
         void RecordCacheMiss(string key);
+        void RecordRedisOperation(string operation, TimeSpan duration, bool success);
         void RecordError(string operation, Exception exception);
         void RecordUserAction(string action, string userId = null);
     }
@@ -80,6 +81,20 @@ namespace FrontEndForecasting.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error recording error");
+            }
+        }
+
+        public void RecordRedisOperation(string operation, TimeSpan duration, bool success)
+        {
+            try
+            {
+                var status = success ? "success" : "failure";
+                _logger.LogInformation("Redis operation - Operation: {Operation}, Duration: {Duration}ms, Status: {Status}", 
+                    operation, duration.TotalMilliseconds, status);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error recording Redis operation");
             }
         }
 
