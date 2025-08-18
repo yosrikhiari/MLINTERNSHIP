@@ -1,53 +1,464 @@
 {
-  "dashboard": {
-    "id": null,
-    "title": "Forecasting Application Dashboard",
-    "tags": ["forecasting", "dotnet"],
-    "style": "dark",
-    "timezone": "browser",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Application Health",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "up{job=\"frontend-forecasting\"}",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {
-              "mode": "thresholds"
+  "id": null,
+  "title": "Forecasting Application Dashboard",
+  "tags": ["forecasting", "dotnet", "ml", "redis"],
+  "style": "dark",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Application Health Status",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job=\"frontend-forecasting\"}",
+          "refId": "A",
+          "legendFormat": "Frontend"
+        },
+        {
+          "expr": "up{job=\"ml-model-service\"}",
+          "refId": "B",
+          "legendFormat": "ML Service"
+        },
+        {
+          "expr": "up{job=\"redis\"}",
+          "refId": "C",
+          "legendFormat": "Redis"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "HTTP Request Rate (5m)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_request_duration_seconds_count{job=\"frontend-forecasting\"}[5m])",
+          "refId": "A",
+          "legendFormat": "Frontend - {{method}} {{controller}}/{{action}}"
+        },
+        {
+          "expr": "rate(http_request_duration_seconds_count{job=\"ml-model-service\"}[5m])",
+          "refId": "B",
+          "legendFormat": "ML Service - {{method}} {{endpoint}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
             },
-            "thresholds": {
-              "steps": [
-                {"color": "red", "value": 0},
-                {"color": "green", "value": 1}
-              ]
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "id": 3,
+      "title": "Response Time (95th percentile)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"frontend-forecasting\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "Frontend - {{controller}}/{{action}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"ml-model-service\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "ML Service - {{endpoint}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "Error Rate (4xx/5xx)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_request_duration_seconds_count{job=\"frontend-forecasting\",code=~\"4..|5..\"}[5m])",
+          "refId": "A",
+          "legendFormat": "Frontend Errors"
+        },
+        {
+          "expr": "rate(http_request_duration_seconds_count{job=\"ml-model-service\",code=~\"4..|5..\"}[5m])",
+          "refId": "B",
+          "legendFormat": "ML Service Errors"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "id": 5,
+      "title": "Business Metrics - Upload Success",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_seconds_count{job=\"frontend-forecasting\",action=\"Upload\",code=\"200\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "Upload Success Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 0.1},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "unit": "reqps",
+          "decimals": 3
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 12, "y": 16}
+    },
+    {
+      "id": 6,
+      "title": "Business Metrics - Prediction Success",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_seconds_count{job=\"frontend-forecasting\",action=\"Predict\",code=\"200\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "Prediction Success Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 0.1},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "unit": "reqps",
+          "decimals": 3
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 20, "y": 16}
+    },
+    {
+      "id": 7,
+      "title": "Redis Memory Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes",
+          "refId": "A",
+          "legendFormat": "Memory Used"
+        },
+        {
+          "expr": "redis_memory_max_bytes",
+          "refId": "B",
+          "legendFormat": "Memory Max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+    },
+    {
+      "id": 8,
+      "title": "Redis Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(redis_commands_processed_total[5m])",
+          "refId": "A",
+          "legendFormat": "Commands/sec"
+        },
+        {
+          "expr": "rate(redis_keyspace_hits_total[5m])",
+          "refId": "B",
+          "legendFormat": "Cache Hits"
+        },
+        {
+          "expr": "rate(redis_keyspace_misses_total[5m])",
+          "refId": "C",
+          "legendFormat": "Cache Misses"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+    },
+    {
+      "id": 9,
+      "title": "System Resources",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "process_cpu_seconds_total{job=\"frontend-forecasting\"}",
+          "refId": "A",
+          "legendFormat": "Frontend CPU"
+        },
+        {
+          "expr": "process_cpu_seconds_total{job=\"ml-model-service\"}",
+          "refId": "B",
+          "legendFormat": "ML Service CPU"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+    },
+    {
+      "id": 10,
+      "title": "Request Distribution by Endpoint",
+      "type": "piechart",
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_seconds_count{job=\"frontend-forecasting\"}[5m])) by (action)",
+          "refId": "A",
+          "legendFormat": "{{action}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
             }
           }
-        },
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        }
       },
-      {
-        "id": 2,
-        "title": "HTTP Request Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(http_requests_total{job=\"frontend-forecasting\"}[5m])",
-            "refId": "A"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
-      }
-    ],
-    "time": {
-      "from": "now-1h",
-      "to": "now"
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}
     },
-    "refresh": "30s"
-  }
+    {
+      "id": 11,
+      "title": "Response Time Distribution",
+      "type": "heatmap",
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_seconds_bucket{job=\"frontend-forecasting\"}[5m])) by (le)",
+          "refId": "A",
+          "legendFormat": "{{le}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            }
+          }
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}
+    }
+  ]
 }
