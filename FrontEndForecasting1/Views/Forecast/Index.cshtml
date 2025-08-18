@@ -24,13 +24,9 @@
                     <form asp-controller="Forecast" asp-action="Upload" method="post" enctype="multipart/form-data" id="uploadForm">
                         @Html.AntiForgeryToken()
                         <div class="mb-4">
-                            <label for="file" class="form-label fw-bold">Select CSV File:</label>
+                            <label for="fileInput" class="form-label fw-bold">Select CSV File:</label>
                             <div class="input-group">
-                                <button type="button" id="selectFileBtn" class="btn btn-outline-primary">
-                                    <i class="fas fa-file-csv me-1"></i> Choose File
-                                </button>
-                                <input type="file" id="fileInput" name="file" accept=".csv" style="display: none;" required />
-                                <input type="text" id="selectedFileDisplay" class="form-control" placeholder="No file selected" readonly />
+                                <input type="file" id="fileInput" name="file" accept=".csv" class="form-control" required />
                             </div>
                             <div class="form-text">
                                 <i class="fas fa-info-circle me-1"></i>
@@ -141,56 +137,67 @@
 </div>
 
 <!-- Include Bootstrap and FontAwesome -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous">
 
 <script>
-    // File selection handling
-    document.getElementById('selectFileBtn').addEventListener('click', function() {
-        document.getElementById('fileInput').click();
-    });
+    console.log('Script loaded - checking elements...');
+    
+    // Check if elements exist
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    console.log('fileInput:', fileInput);
+    console.log('fileInfo:', fileInfo);
+    console.log('submitBtn:', submitBtn);
 
     // Display selected file information
-    document.getElementById('fileInput').addEventListener('change', function() {
-        const file = this.files[0];
-        const fileDisplay = document.getElementById('selectedFileDisplay');
-        const fileInfo = document.getElementById('fileInfo');
-        const fileName = document.getElementById('fileName');
-        const fileSize = document.getElementById('fileSize');
-        const submitBtn = document.getElementById('submitBtn');
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            console.log('File input change event triggered');
+            const file = this.files[0];
+            console.log('Selected file:', file);
+            
+            if (file) {
+                // Validate file type
+                if (!file.name.toLowerCase().endsWith('.csv')) {
+                    alert('Please select a CSV file.');
+                    this.value = '';
+                    if (fileName) fileName.textContent = '';
+                    if (fileSize) fileSize.textContent = '';
+                    fileInfo.style.display = 'none';
+                    submitBtn.disabled = true;
+                    return;
+                }
 
-        if (file) {
-            // Validate file type
-            if (!file.name.toLowerCase().endsWith('.csv')) {
-                alert('Please select a CSV file.');
-                this.value = '';
-                fileDisplay.value = '';
+                // Validate file size (10MB limit)
+                if (file.size > 10 * 1024 * 1024) {
+                    alert('File size must be less than 10MB.');
+                    this.value = '';
+                    if (fileName) fileName.textContent = '';
+                    if (fileSize) fileSize.textContent = '';
+                    fileInfo.style.display = 'none';
+                    submitBtn.disabled = true;
+                    return;
+                }
+
+                if (fileName) fileName.textContent = file.name;
+                if (fileSize) fileSize.textContent = formatFileSize(file.size);
+                fileInfo.style.display = 'block';
+                submitBtn.disabled = false;
+            } else {
+                if (fileName) fileName.textContent = '';
+                if (fileSize) fileSize.textContent = '';
                 fileInfo.style.display = 'none';
                 submitBtn.disabled = true;
-                return;
             }
-
-            // Validate file size (10MB limit)
-            if (file.size > 10 * 1024 * 1024) {
-                alert('File size must be less than 10MB.');
-                this.value = '';
-                fileDisplay.value = '';
-                fileInfo.style.display = 'none';
-                submitBtn.disabled = true;
-                return;
-            }
-
-            fileDisplay.value = file.name;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatFileSize(file.size);
-            fileInfo.style.display = 'block';
-            submitBtn.disabled = false;
-        } else {
-            fileDisplay.value = '';
-            fileInfo.style.display = 'none';
-            submitBtn.disabled = true;
-        }
-    });
+        });
+    } else {
+        console.error('File input element not found!');
+    }
 
     // Format file size
     function formatFileSize(bytes) {
@@ -202,12 +209,65 @@
     }
 
     // Form submission handling
-    document.getElementById('uploadForm').addEventListener('submit', function() {
-        const submitBtn = document.getElementById('submitBtn');
-        const spinner = document.getElementById('submitSpinner');
+    if (document.getElementById('uploadForm')) {
+        document.getElementById('uploadForm').addEventListener('submit', function() {
+            console.log('Form submitted');
+            const submitBtn = document.getElementById('submitBtn');
+            const spinner = document.getElementById('submitSpinner');
 
-        submitBtn.disabled = true;
-        spinner.style.display = 'inline-block';
-        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading and Processing...';
-    });
+            submitBtn.disabled = true;
+            spinner.style.display = 'inline-block';
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading and Processing...';
+        });
+    }
+
+    // Button to trigger file chooser
+    const selectFileBtn = document.getElementById('selectFileBtn');
+    const selectedFileDisplay = document.getElementById('selectedFileDisplay');
+    console.log('selectFileBtn:', selectFileBtn);
+    console.log('selectedFileDisplay:', selectedFileDisplay);
+    if (selectFileBtn && fileInput) {
+        console.log('Binding click handler to selectFileBtn');
+        selectFileBtn.addEventListener('click', function(e) {
+            console.log('selectFileBtn clicked', e);
+            e.preventDefault();
+            e.stopPropagation();
+            
+            try {
+                console.log('About to call fileInput.click()');
+                console.log('fileInput.style.display:', fileInput.style.display);
+                console.log('fileInput.offsetParent:', fileInput.offsetParent);
+                console.log('fileInput.visibility:', window.getComputedStyle(fileInput).visibility);
+                console.log('fileInput.zIndex:', window.getComputedStyle(fileInput).zIndex);
+                
+                // Try to make input visible temporarily
+                fileInput.style.display = 'block';
+                fileInput.style.position = 'absolute';
+                fileInput.style.left = '-9999px';
+                fileInput.style.opacity = '0';
+                
+                console.log('Modified fileInput styles:', fileInput.style);
+                
+                // Force focus and click
+                fileInput.focus();
+                fileInput.click();
+                
+                console.log('fileInput.click() called successfully');
+                
+                // Restore hidden state
+                setTimeout(() => {
+                    fileInput.style.display = 'none';
+                    fileInput.style.position = '';
+                    fileInput.style.left = '';
+                    fileInput.style.opacity = '';
+                }, 100);
+                
+            } catch (err) {
+                console.error('Error calling fileInput.click()', err);
+                console.error('Error stack:', err.stack);
+            }
+        });
+    } else {
+        console.warn('selectFileBtn or fileInput not found; button handler not attached');
+    }
 </script>

@@ -56,14 +56,29 @@ namespace FrontEndForecasting
                     options.ValueCountLimit = int.MaxValue;
                 });
 
-                var redisConfig = builder.Configuration["Redis:Configuration"]
-                                ?? builder.Configuration["REDIS__CONFIGURATION"]
-                                ?? "redis:6379,abortConnect=false";
-                builder.Services.AddStackExchangeRedisCache(o =>
+                // Configure distributed cache: use in-memory in Development, Redis otherwise if configured
+                if (builder.Environment.IsDevelopment())
                 {
-                    o.Configuration = redisConfig;
-                    o.InstanceName = "forecast:";
-                });
+                    builder.Services.AddDistributedMemoryCache();
+                }
+                else
+                {
+                    var redisConfig = builder.Configuration["Redis:Configuration"]
+                                        ?? builder.Configuration["REDIS__CONFIGURATION"];
+
+                    if (!string.IsNullOrWhiteSpace(redisConfig))
+                    {
+                        builder.Services.AddStackExchangeRedisCache(o =>
+                        {
+                            o.Configuration = redisConfig;
+                            o.InstanceName = "forecast:";
+                        });
+                    }
+                    else
+                    {
+                        builder.Services.AddDistributedMemoryCache();
+                    }
+                }
 
                 // Configure Kestrel server limits
                 builder.Services.Configure<KestrelServerOptions>(options =>

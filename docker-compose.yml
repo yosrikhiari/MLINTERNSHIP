@@ -1,11 +1,10 @@
-version: '3.8'
-
 services:
   # Machine Learning Model Service
   ml-model-service:
     build:
       context: ./MLINTERNSHIP
       dockerfile: Dockerfile
+      network: host
     container_name: mlinternship
     ports:
       - "5000:5000"
@@ -33,6 +32,7 @@ services:
     build:
       context: .
       dockerfile: FrontEndForecasting1/Dockerfile
+      network: host
     container_name: frontend-forecasting
     ports:
       - "8088:80"
@@ -113,7 +113,7 @@ services:
       retries: 3
       start_period: 45s
 
-
+  # Redis
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -127,6 +127,27 @@ services:
       retries: 3
     networks:
       - forecasting-network
+    restart: unless-stopped
+
+  # Redis Exporter for monitoring
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    container_name: redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    networks:
+      - forecasting-network
+    restart: unless-stopped
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9121/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   prometheus_data:
