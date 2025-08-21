@@ -52,10 +52,64 @@
         .forecast-value {
             font-weight: 600;
             color: #28a745;
+            font-size: 1.1rem;
         }
 
         .confidence-interval {
             color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .prediction-highlight {
+            background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%);
+            border-left: 4px solid #28a745;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin: 4px 0;
+        }
+
+        .prediction-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #155724;
+        }
+
+        .prediction-unit {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-left: 4px;
+        }
+
+        .trend-indicator {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .trend-up {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .trend-down {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .trend-stable {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .seasonal-pattern {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+            padding: 6px 10px;
+            border-radius: 4px;
+            margin: 2px 0;
             font-size: 0.9rem;
         }
 
@@ -130,299 +184,6 @@
                         </div>
                     </div>
                 </div>
-
-                <script>
-                    // Update the horizon display in JavaScript
-                    var horizon = @horizon;
-                    var horizonDisplay = '@Html.Raw(horizonDisplay)';
-                    var forecastUnit = '@forecastUnit';
-                    var forecastQuantity = @forecastQuantity;
-
-                    // Enhanced forecast data structure
-                                     var forecastData = [
-                    @foreach (var result in Model)
-                    {
-                        <text>
-                                {
-                                    productId: "@result.ProductId",
-                                    selectedModel: "@result.SelectedModel",
-                                    predictions: @Html.Raw(Json.Serialize(result.Predictions)),
-                                    confidenceIntervals: @Html.Raw(Json.Serialize(result.ConfidenceIntervals)),
-                                    prophetPredictions: @Html.Raw(Json.Serialize(result.ProphetPredictions)),
-                                    xgBoostPredictions: @Html.Raw(Json.Serialize(result.XgBoostPredictions)),
-                                    prophetSMAPE: @result.ProphetSMAPE,
-                                    xgBoostSMAPE: @result.XgBoostSMAPE,
-                                    selectedModelSMAPE: @(result.SelectedModel == "Prophet" ? result.ProphetSMAPE : result.XgBoostSMAPE),
-                            @if (result.AggregatedPredictions != null)
-                            {
-                                <text>aggregatedPredictions: @Html.Raw(Json.Serialize(result.AggregatedPredictions)),</text>
-                            }
-                            else
-                            {
-                                <text>aggregatedPredictions: null,</text>
-                            }
-                            @if (result.AggregatedConfidenceIntervals != null)
-                            {
-                                <text>aggregatedConfidenceIntervals: @Html.Raw(Json.Serialize(result.AggregatedConfidenceIntervals)),</text>
-                            }
-                            else
-                            {
-                                <text>aggregatedConfidenceIntervals: null,</text>
-                            }
-                            @if (result.AggregatedLabels != null)
-                            {
-                                <text>aggregatedLabels: @Html.Raw(Json.Serialize(result.AggregatedLabels)),</text>
-                            }
-                            else
-                            {
-                                <text>aggregatedLabels: null,</text>
-                            }
-                                    request: {
-                                        unit: '@(result.Request?.Unit.ToString() ?? "Days")',
-                                        quantity: @(result.Request?.Quantity ?? 7),
-                                        displayText: '@(result.Request?.GetDisplayText() ?? "7 days")'
-                                    },
-                            @if (result.ForecastDates != null)
-                            {
-                                <text>forecastDates: @Html.Raw(Json.Serialize(result.ForecastDates.Select(d => d.ToString("yyyy-MM-dd")))),</text>
-                            }
-                            else
-                            {
-                                <text>forecastDates: [],</text>
-                            }
-                                    metrics: {
-                                        mape: @(result.Metrics?.MAPE ?? 0),
-                                        rmse: @(result.Metrics?.RMSE ?? 0),
-                                        mae: @(result.Metrics?.MAE ?? 0),
-                                        r2: @(result.Metrics?.R2 ?? 0),
-                                        smape: @(result.Metrics?.SMAPE ?? 0)
-                                    }
-                                },
-                        </text>
-                    }
-                    ];
-
-                    function createForecastChart() {
-                        const ctx = document.getElementById('forecastChart').getContext('2d');
-                        if (currentChart) currentChart.destroy();
-
-                        // Enhanced color palette
-                        const colors = [
-                            '#e74c3c', '#3498db', '#f39c12', '#2ecc71', '#9b59b6',
-                            '#1abc9c', '#e67e22', '#34495e', '#f1c40f', '#e91e63'
-                        ];
-
-                        // Determine chart data and labels based on aggregation
-                        const datasets = forecastData.map((item, index) => {
-                            // Use aggregated data if available and the forecast unit is not Days
-                            const useAggregated = item.aggregatedPredictions &&
-                                                item.aggregatedPredictions.length > 0 &&
-                                                item.request &&
-                                                item.request.unit !== 'Days';
-
-                            const data = useAggregated ? item.aggregatedPredictions : item.predictions;
-                            const chartLabels = useAggregated ? item.aggregatedLabels :
-                                               Array.from({length: item.predictions.length}, (_, i) => `Day ${i + 1}`);
-
-                            return {
-                                label: `${item.productId} (${item.selectedModel})`,
-                                data: data,
-                                borderColor: colors[index % colors.length],
-                                backgroundColor: colors[index % colors.length] + '30',
-                                tension: 0.4,
-                                fill: false,
-                                borderWidth: 3,
-                                pointBackgroundColor: colors[index % colors.length],
-                                pointBorderColor: '#ffffff',
-                                pointBorderWidth: 2,
-                                pointRadius: 5
-                            };
-                        });
-
-                        // Determine chart labels based on the first item's configuration
-                        let chartLabels = [];
-                        let xAxisTitle = 'Forecast Horizon';
-
-                        if (forecastData.length > 0) {
-                            const firstItem = forecastData[0];
-                            const useAggregated = firstItem.aggregatedPredictions &&
-                                                firstItem.aggregatedPredictions.length > 0 &&
-                                                firstItem.request &&
-                                                firstItem.request.unit !== 'Days';
-
-                            if (useAggregated) {
-                                chartLabels = firstItem.aggregatedLabels || [];
-
-                                // Set appropriate x-axis title based on unit
-                                switch (firstItem.request.unit) {
-                                    case 'Weeks':
-                                        xAxisTitle = `Weekly Forecast (${firstItem.request.quantity} weeks)`;
-                                        break;
-                                    case 'Months':
-                                        xAxisTitle = `Monthly Forecast (${firstItem.request.quantity} months)`;
-                                        break;
-                                    default:
-                                        xAxisTitle = `Forecast Horizon (${firstItem.request.displayText})`;
-                                }
-                            } else {
-                                // For daily data or when no aggregation is available
-                                chartLabels = Array.from({length: firstItem.predictions.length}, (_, i) => `Day ${i + 1}`);
-                                xAxisTitle = `Daily Forecast (${firstItem.request ? firstItem.request.displayText : horizonDisplay})`;
-                            }
-                        } else {
-                            // Fallback labels
-                            chartLabels = Array.from({length: horizon}, (_, i) => `Day ${i + 1}`);
-                            xAxisTitle = `Forecast Horizon (${horizonDisplay})`;
-                        }
-
-                        // Determine chart title based on forecast unit
-                        let chartTitle = 'Demand Forecast';
-                        if (forecastData.length > 0 && forecastData[0].request) {
-                            const unit = forecastData[0].request.unit;
-                            const quantity = forecastData[0].request.quantity;
-
-                            switch (unit) {
-                                case 'Days':
-                                    chartTitle = `Daily Demand Forecast - ${quantity} Day${quantity > 1 ? 's' : ''}`;
-                                    break;
-                                case 'Weeks':
-                                    chartTitle = `Weekly Demand Forecast - ${quantity} Week${quantity > 1 ? 's' : ''}`;
-                                    break;
-                                case 'Months':
-                                    chartTitle = `Monthly Demand Forecast - ${quantity} Month${quantity > 1 ? 's' : ''}`;
-                                    break;
-                                default:
-                                    chartTitle = `Demand Forecast - ${horizonDisplay}`;
-                            }
-                        }
-
-                        currentChart = new Chart(ctx, {
-                            type: chartType,
-                            data: {
-                                labels: chartLabels,
-                                datasets: datasets
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        title: {
-                                            display: true,
-                                            text: 'Forecast Value (Units)',
-                                            font: {
-                                                size: 12,
-                                                weight: 'bold'
-                                            }
-                                        },
-                                        grid: {
-                                            color: 'rgba(0,0,0,0.1)'
-                                        }
-                                    },
-                                    x: {
-                                        title: {
-                                            display: true,
-                                            text: xAxisTitle,
-                                            font: {
-                                                size: 12,
-                                                weight: 'bold'
-                                            }
-                                        },
-                                        grid: {
-                                            color: 'rgba(0,0,0,0.1)'
-                                        },
-                                        ticks: {
-                                            maxRotation: 45,
-                                            minRotation: 0
-                                        }
-                                    }
-                                },
-                                plugins: {
-                                    legend: {
-                                        position: 'top',
-                                        labels: {
-                                            usePointStyle: true,
-                                            padding: 20
-                                        }
-                                    },
-                                    title: {
-                                        display: true,
-                                        text: chartTitle,
-                                        font: {
-                                            size: 16,
-                                            weight: 'bold'
-                                        },
-                                        padding: {
-                                            top: 10,
-                                            bottom: 30
-                                        }
-                                    },
-                                    tooltip: {
-                                        callbacks: {
-                                            title: function(context) {
-                                                return context[0].label;
-                                            },
-                                            label: function(context) {
-                                                const product = forecastData[context.datasetIndex];
-                                                const value = context.parsed.y;
-                                                return `${context.dataset.label}: ${value.toFixed(2)} units`;
-                                            },
-                                            afterLabel: function(context) {
-                                                const product = forecastData[context.datasetIndex];
-                                                const dataIndex = context.dataIndex;
-
-                                                // Get confidence interval
-                                                let confidence = 0;
-                                                if (product.aggregatedConfidenceIntervals &&
-                                                    product.aggregatedConfidenceIntervals.length > dataIndex &&
-                                                    product.request && product.request.unit !== 'Days') {
-                                                    confidence = product.aggregatedConfidenceIntervals[dataIndex];
-                                                } else if (product.confidenceIntervals &&
-                                                         product.confidenceIntervals.length > dataIndex) {
-                                                    confidence = product.confidenceIntervals[dataIndex];
-                                                }
-
-                                                return confidence > 0 ? `Confidence: ±${confidence.toFixed(2)}` : '';
-                                            }
-                                        },
-                                        backgroundColor: 'rgba(0,0,0,0.8)',
-                                        titleColor: 'white',
-                                        bodyColor: 'white',
-                                        borderColor: 'rgba(0,0,0,0.1)',
-                                        borderWidth: 1
-                                    }
-                                },
-                                interaction: {
-                                    intersect: false,
-                                    mode: 'index'
-                                }
-                            }
-                        });
-                    }
-
-
-                    // Update the forecast horizon display
-                    $(document).ready(function() {
-                        // Ensure variables are defined
-                        if (typeof forecastQuantity !== 'undefined' && typeof forecastUnit !== 'undefined') {
-                            var horizonElement = document.getElementById('forecastHorizon');
-                            if (horizonElement) {
-                                horizonElement.textContent = forecastQuantity + ' ' + forecastUnit.toLowerCase();
-                            }
-                        }
-
-                    if (typeof forecastData !== 'undefined' && forecastData.length > 0) {
-                         console.log('Initializing dashboard with', forecastData.length, 'products');
-                         updateSummaryCards();
-                         populateTables();
-                         createForecastChart(); // This will now properly handle time units
-                         initializeDataTables();
-                     } else {
-                         console.error('No forecast data available');
-                     }
-                    });
-                </script>
                 <div class="col-md-3">
                     <div class="card metric-card">
                         <div class="card-body">
@@ -438,6 +199,22 @@
                             <h5 class="card-title"><i class="fas fa-robot text-success me-2"></i>Best Model</h5>
                             <h3 class="text-success" id="bestModel"></h3>
                             <small class="text-muted">Most selected</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Prediction Summary Statistics -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-chart-pie text-primary me-2"></i>Prediction Summary Statistics</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row" id="predictionStats">
+                                <!-- Statistics will be populated by JavaScript -->
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -692,6 +469,92 @@
 
                 document.getElementById('avgSmape').textContent = avgSmape + '%';
                 document.getElementById('bestModel').textContent = bestModel;
+                
+                // Update prediction statistics
+                updatePredictionStatistics();
+            }
+
+            function updatePredictionStatistics() {
+                if (forecastData.length === 0) return;
+
+                const statsContainer = document.getElementById('predictionStats');
+                if (!statsContainer) return;
+
+                // Calculate comprehensive statistics
+                const allPredictions = forecastData.flatMap(item => 
+                    item.aggregatedPredictions && item.aggregatedPredictions.length > 0 && 
+                    item.request && item.request.unit !== 'Days' ? 
+                    item.aggregatedPredictions : item.predictions
+                );
+
+                const totalDemand = allPredictions.reduce((sum, val) => sum + val, 0);
+                const avgDemand = totalDemand / allPredictions.length;
+                const minDemand = Math.min(...allPredictions);
+                const maxDemand = Math.max(...allPredictions);
+                const demandRange = maxDemand - minDemand;
+
+                // Calculate trend statistics
+                const trends = forecastData.map(item => {
+                    const predictions = item.aggregatedPredictions && item.aggregatedPredictions.length > 0 && 
+                                     item.request && item.request.unit !== 'Days' ? 
+                                     item.aggregatedPredictions : item.predictions;
+                    
+                    if (predictions.length < 2) return 0;
+                    
+                    const firstHalf = predictions.slice(0, Math.ceil(predictions.length / 2));
+                    const secondHalf = predictions.slice(Math.ceil(predictions.length / 2));
+                    
+                    const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+                    const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+                    
+                    return firstAvg > 0 ? ((secondAvg - firstAvg) / firstAvg) * 100 : 0;
+                });
+
+                const avgTrend = trends.reduce((sum, val) => sum + val, 0) / trends.length;
+                const positiveTrends = trends.filter(t => t > 0).length;
+                const negativeTrends = trends.filter(t => t < 0).length;
+
+                // Create statistics cards
+                const statsHTML = `
+                    <div class="col-md-3">
+                        <div class="card border-success">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-success">Total Forecasted Demand</h6>
+                                <h3 class="text-success">${totalDemand.toFixed(0)}</h3>
+                                <small class="text-muted">units across all products</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-info">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-info">Average Demand</h6>
+                                <h3 class="text-info">${avgDemand.toFixed(1)}</h3>
+                                <small class="text-muted">units per period</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-warning">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-warning">Demand Range</h6>
+                                <h3 class="text-warning">${demandRange.toFixed(1)}</h3>
+                                <small class="text-muted">min: ${minDemand.toFixed(1)}, max: ${maxDemand.toFixed(1)}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-primary">Overall Trend</h6>
+                                <h3 class="text-primary">${avgTrend > 0 ? '+' : ''}${avgTrend.toFixed(1)}%</h3>
+                                <small class="text-muted">${positiveTrends} ↗, ${negativeTrends} ↘</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                statsContainer.innerHTML = statsHTML;
             }
 
             function populateTables() {
@@ -738,15 +601,26 @@
                         <tr>
                             <td><strong>${item.productId}</strong></td>
                             <td><span class="badge bg-primary model-badge">${item.selectedModel}</span></td>
-                            <td class="forecast-value">${avgForecast}</td>
-                            <td><small>${range}</small></td>
+                            <td>
+                                <div class="prediction-highlight">
+                                    <span class="prediction-value">${avgForecast}</span>
+                                    <span class="prediction-unit">units</span>
+                                    ${getTrendIndicator(predictions)}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="seasonal-pattern">
+                                    <strong>Range:</strong> ${range}<br>
+                                    <small>Min: ${minForecast} | Max: ${maxForecast}</small>
+                                </div>
+                            </td>
                             <td>${smapeBadge}</td>
                             <td>
-                                <small>
-                                    MAPE: ${item.metrics.mape.toFixed(2)}%<br>
-                                    R²: ${item.metrics.r2.toFixed(3)}<br>
-                                    Period: ${unitDisplay}
-                                </small>
+                                <div class="small">
+                                    <strong>MAPE:</strong> ${item.metrics.mape.toFixed(2)}%<br>
+                                    <strong>R²:</strong> ${item.metrics.r2.toFixed(3)}<br>
+                                    <strong>Period:</strong> ${unitDisplay}
+                                </div>
                             </td>
                             <td>
                                 <button class="btn btn-sm btn-outline-primary" onclick="showProductDetails('${item.productId}')">
@@ -757,6 +631,26 @@
                     `;
                     tbody.innerHTML += row;
                 });
+            }
+
+            function getTrendIndicator(predictions) {
+                if (predictions.length < 2) return '';
+                
+                const firstHalf = predictions.slice(0, Math.ceil(predictions.length / 2));
+                const secondHalf = predictions.slice(Math.ceil(predictions.length / 2));
+                
+                const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+                const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+                
+                const change = ((secondAvg - firstAvg) / firstAvg) * 100;
+                
+                if (change > 5) {
+                    return '<span class="trend-indicator trend-up">↗ +' + change.toFixed(1) + '%</span>';
+                } else if (change < -5) {
+                    return '<span class="trend-indicator trend-down">↘ ' + change.toFixed(1) + '%</span>';
+                } else {
+                    return '<span class="trend-indicator trend-stable">→ ' + change.toFixed(1) + '%</span>';
+                }
             }
 
             function populateDetailTable() {
@@ -783,7 +677,12 @@
                             <tr>
                                 <td><strong>${item.productId}</strong></td>
                                 <td>${label}</td>
-                                <td class="forecast-value">${forecast.toFixed(2)}</td>
+                                <td>
+                                    <div class="prediction-highlight">
+                                        <span class="prediction-value">${forecast.toFixed(2)}</span>
+                                        <span class="prediction-unit">units</span>
+                                    </div>
+                                </td>
                                 <td class="confidence-interval">±${confidence.toFixed(2)}</td>
                                 <td><span class="badge bg-secondary">${item.selectedModel}</span></td>
                                 <td>${item.selectedModelSMAPE.toFixed(2)}%</td>
@@ -801,6 +700,89 @@
                 if (smape < 10) return `<span class="badge bg-warning text-dark performance-badge">${smape.toFixed(2)}% Good</span>`;
                 if (smape < 20) return `<span class="badge bg-warning performance-badge">${smape.toFixed(2)}% Fair</span>`;
                 return `<span class="badge bg-danger performance-badge">${smape.toFixed(2)}% Poor</span>`;
+            }
+
+            function updatePredictionStatistics() {
+                if (forecastData.length === 0) return;
+
+                const statsContainer = document.getElementById('predictionStats');
+                if (!statsContainer) return;
+
+                // Calculate comprehensive statistics
+                const allPredictions = forecastData.flatMap(item => 
+                    item.aggregatedPredictions && item.aggregatedPredictions.length > 0 && 
+                    item.request && item.request.unit !== 'Days' ? 
+                    item.aggregatedPredictions : item.predictions
+                );
+
+                const totalDemand = allPredictions.reduce((sum, val) => sum + val, 0);
+                const avgDemand = totalDemand / allPredictions.length;
+                const minDemand = Math.min(...allPredictions);
+                const maxDemand = Math.max(...allPredictions);
+                const demandRange = maxDemand - minDemand;
+
+                // Calculate trend statistics
+                const trends = forecastData.map(item => {
+                    const predictions = item.aggregatedPredictions && item.aggregatedPredictions.length > 0 && 
+                                     item.request && item.request.unit !== 'Days' ? 
+                                     item.aggregatedPredictions : item.predictions;
+                    
+                    if (predictions.length < 2) return 0;
+                    
+                    const firstHalf = predictions.slice(0, Math.ceil(predictions.length / 2));
+                    const secondHalf = predictions.slice(Math.ceil(predictions.length / 2));
+                    
+                    const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+                    const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+                    
+                    return firstAvg > 0 ? ((secondAvg - firstAvg) / firstAvg) * 100 : 0;
+                });
+
+                const avgTrend = trends.reduce((sum, val) => sum + val, 0) / trends.length;
+                const positiveTrends = trends.filter(t => t > 0).length;
+                const negativeTrends = trends.filter(t => t < 0).length;
+
+                // Create statistics cards
+                const statsHTML = `
+                    <div class="col-md-3">
+                        <div class="card border-success">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-success">Total Forecasted Demand</h6>
+                                <h3 class="text-success">${totalDemand.toFixed(0)}</h3>
+                                <small class="text-muted">units across all products</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-info">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-info">Average Demand</h6>
+                                <h3 class="text-info">${avgDemand.toFixed(1)}</h3>
+                                <small class="text-muted">units per period</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-warning">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-warning">Demand Range</h6>
+                                <h3 class="text-warning">${demandRange.toFixed(1)}</h3>
+                                <small class="text-muted">min: ${minDemand.toFixed(1)}, max: ${maxDemand.toFixed(1)}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-primary">Overall Trend</h6>
+                                <h3 class="text-primary">${avgTrend > 0 ? '+' : ''}${avgTrend.toFixed(1)}%</h3>
+                                <small class="text-muted">${positiveTrends} ↗, ${negativeTrends} ↘</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                statsContainer.innerHTML = statsHTML;
             }
 
             function createCharts() {
@@ -971,7 +953,15 @@
                                     label: function(context) {
                                         const product = forecastData[context.datasetIndex];
                                         const value = context.parsed.y;
-                                        return `${context.dataset.label}: ${value.toFixed(2)} units`;
+                                        const confidence = product.confidenceIntervals && 
+                                                         product.confidenceIntervals[context.dataIndex] ? 
+                                                         product.confidenceIntervals[context.dataIndex] : 0;
+                                        
+                                        let label = `${context.dataset.label}: ${value.toFixed(1)} units`;
+                                        if (confidence > 0) {
+                                            label += ` (±${confidence.toFixed(1)})`;
+                                        }
+                                        return label;
                                     },
                                     afterLabel: function(context) {
                                         const product = forecastData[context.datasetIndex];
@@ -988,14 +978,40 @@
                                             confidence = product.confidenceIntervals[dataIndex];
                                         }
                                         
-                                        return confidence > 0 ? `Confidence: ±${confidence.toFixed(2)}` : '';
+                                        let additionalInfo = '';
+                                        if (confidence > 0) {
+                                            additionalInfo += `Confidence: ±${confidence.toFixed(1)} units\n`;
+                                        }
+                                        
+                                        // Add trend information
+                                        if (product.predictions && product.predictions.length > 1) {
+                                            const currentValue = product.predictions[dataIndex] || 0;
+                                            const previousValue = dataIndex > 0 ? product.predictions[dataIndex - 1] : currentValue;
+                                            const change = previousValue > 0 ? ((currentValue - previousValue) / previousValue) * 100 : 0;
+                                            
+                                            if (Math.abs(change) > 1) {
+                                                const trend = change > 0 ? '↗' : '↘';
+                                                additionalInfo += `Trend: ${trend} ${Math.abs(change).toFixed(1)}%\n`;
+                                            }
+                                        }
+                                        
+                                        return additionalInfo;
                                     }
                                 },
-                                backgroundColor: 'rgba(0,0,0,0.8)',
+                                backgroundColor: 'rgba(0,0,0,0.9)',
                                 titleColor: 'white',
                                 bodyColor: 'white',
-                                borderColor: 'rgba(0,0,0,0.1)',
-                                borderWidth: 1
+                                borderColor: 'rgba(0,0,0,0.2)',
+                                borderWidth: 2,
+                                titleFont: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                bodyFont: {
+                                    size: 12
+                                },
+                                padding: 12,
+                                cornerRadius: 8
                             }
                         },
                         interaction: {
