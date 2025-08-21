@@ -231,6 +231,10 @@
                                     <i class="fas fa-exchange-alt me-1"></i>Switch View
                                 </button>
                             </div>
+                            <div>
+                                <span class="text-muted">Product ID</span>
+                                <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search by Product ID" onkeyup="filterTable()">                                    
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="chart-container">
@@ -632,6 +636,18 @@
                     tbody.innerHTML += row;
                 });
             }
+
+        $('#summaryTableBody').DataTable({
+            "pageLength": 10,
+            "order": [[0, "asc"]],
+            "scrollX": true,
+            "responsive": true,
+            "dom": 'Bfrtip',
+            "language": {
+                "search": "Search data:",
+                "lengthMenu": "Show _MENU_ entries"
+            }
+        });
 
             function getTrendIndicator(predictions) {
                 if (predictions.length < 2) return '';
